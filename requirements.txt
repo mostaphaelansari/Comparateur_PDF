@@ -8,3 +8,9 @@ pyzbar
 opencv-python
 python-dotenv
 requests
+# requirements.txt example
+streamlit==1.33.0
+opencv-python-headless==4.9.0.80
+inference-sdk==0.9.23
+easyocr==1.7.1
+pyzbar==0.1.9
