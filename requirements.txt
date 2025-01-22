@@ -1,11 +1,10 @@
-easyocr
-inference_sdk
-numpy
-Pillow
-PyPDF2
-pyzbar
-Requests
-streamlit
-opencv-python # Headless version of OpenCV
-inference-sdk==0.9.23 
- # Make sure version is specified
+streamlit==1.33.0
+pillow==10.3.0
+numpy==1.26.4
+pypdf2==3.0.1
+inference-sdk==0.9.23
+easyocr==1.7.1
+pyzbar==0.1.9
+opencv-python-headless==4.9.0.80
+python-dotenv==1.0.1
+requests==2.31.0
