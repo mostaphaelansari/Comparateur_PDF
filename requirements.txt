@@ -6,3 +6,5 @@ PyPDF2
 pyzbar
 Requests
 streamlit
+opencv-python-headless==4.9.0.80  # Headless version of OpenCV
+inference-sdk==0.9.23  # Make sure version is specified
