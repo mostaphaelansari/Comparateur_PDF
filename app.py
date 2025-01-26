@@ -16,15 +16,17 @@ import tempfile
 
 # Configuration
 API_URL = "https://detect.roboflow.com"
-API_KEY = "3tMsIHPXAW6pUTPWTVWO"
 MODEL_ID = "medical-object-classifier/3"
 ALLOWED_EXTENSIONS = {'pdf', 'png', 'jpg', 'jpeg'}
 
 # Initialize clients
-client = InferenceHTTPClient(api_url=API_URL, api_key=API_KEY)
+client = InferenceHTTPClient(
+    api_url=API_URL,
+    api_key=st.secrets["API_KEY"]
+)
 reader = easyocr.Reader(['en'], gpu=False)
 
-# Initialize session state with migration support
+# Session state initialization
 if 'processed_data' not in st.session_state:
     st.session_state.processed_data = {
         'RVD': {},
@@ -37,17 +39,9 @@ if 'processed_data' not in st.session_state:
             'rvd_vs_images': {}
         }
     }
-else:
-    # Migration for existing sessions
-    if 'comparisons' not in st.session_state.processed_data:
-        st.session_state.processed_data['comparisons'] = {
-            'rvd_vs_aed': {},
-            'rvd_vs_images': {}
-        }
 
-# ========================
-# Image Processing Functions
-# ========================
+if 'dae_type' not in st.session_state:
+    st.session_state.dae_type = 'G5'
 
 def fix_orientation(img):
     try:
@@ -72,9 +66,98 @@ def process_ocr(image):
 def classify_image(image_path):
     return client.infer(image_path, model_id=MODEL_ID)
 
-# ========================
-# OCR Extraction Functions
-# ========================
+def extract_text_from_pdf(uploaded_file):
+    reader = PdfReader(uploaded_file)
+    text = ""
+    for page in reader.pages:
+        text += page.extract_text()
+    return text
+
+def extract_rvd_data(text):
+    keywords = [
+        "Commentaire fin d'intervention et recommandations",
+        "Numéro de série DEFIBRILLATEUR",
+        "Date-Heure rapport vérification défibrillateur",
+        "Changement batterie",
+        "Changement électrodes adultes",
+        "Code site",
+        "Numéro de série Batterie",
+        "Date mise en service BATTERIE",
+        "Niveau de charge de la batterie en %",
+        "N° série nouvelle batterie",
+        "Date mise en service",
+        "Niveau de charge nouvelle batterie",
+        "Numéro de série ELECTRODES ADULTES",
+        "Numéro de série ELECTRODES ADULTES relevé",
+        "Numéro de série relevé 2",
+        "Date fabrication DEFIBRILLATEUR",
+        "Date fabrication BATTERIE",
+        "Date fabrication relevée",
+        "Date fabrication nouvelle batterie",
+        "Date de péremption ELECTRODES ADULTES",
+        "Date de péremption ELECTRODES ADULTES relevée",
+        "N° série nouvelles électrodes",
+        "Date péremption des nouvelles éléctrodes",
+    ]
+    
+    results = {}
+    for keyword in keywords:
+        # Special handling for battery serial number
+        if keyword == "N° série nouvelle batterie":
+            # Use more precise pattern to capture serial number
+            pattern = re.compile(
+                re.escape(keyword) + 
+                r"[\s:]*([A-Za-z0-9\-]+)(?=\s|$)",
+                re.IGNORECASE
+            )
+        else:
+            pattern = re.compile(re.escape(keyword) + r"[\s:]*([^\n]*)")
+        
+        match = pattern.search(text)
+        if match:
+            value = match.group(1).strip()
+            # Additional cleanup for battery serial
+            if keyword == "N° série nouvelle batterie":
+                value = value.split()[0]  # Take first part if space separated
+            results[keyword] = value
+    return results
+
+def extract_aed_g5_data(text):
+    keywords = [
+        "N° série DAE",
+        "Capacité restante de la batterie",
+        "Date d'installation :",
+        "Rapport DAE - Erreurs en cours",
+        "Date / Heure:",
+    ]
+    
+    results = {}
+    for keyword in keywords:
+        pattern = re.compile(re.escape(keyword) + r"[\s:]*([^\n]*)")
+        match = pattern.search(text)
+        if match:
+            results[keyword] = match.group(1).strip()
+    return results
+
+def extract_aed_g3_data(text):
+    keywords = [
+        "Série DSA",
+        "Dernier échec de DSA",
+        "Numéro de lot",
+        "Date de mise en service",
+        "Capacité initiale de la batterie 12V",
+        "Capacité restante de la batterie 12V",
+        "Autotest",
+    ]
+    
+    results = {}
+    lines = text.split('\n')
+    for i, line in enumerate(lines):
+        for keyword in keywords:
+            if keyword in line:
+                value = lines[i+1].strip() if i+1 < len(lines) else ""
+                results[keyword] = value
+    return results
 
 def extract_important_info_g3(results):
     serial_number = None
@@ -158,97 +241,9 @@ def extract_important_info_electrodes(image):
                 expiration_date = barcodes[1].data.decode('utf-8')
         
         return serial_number, expiration_date
-
     except Exception as e:
         st.error(f"Erreur lors du traitement de l'image : {e}")
         return None, None
-
-# ========================
-# PDF Processing Functions
-# ========================
-
-def extract_text_from_pdf(uploaded_file):
-    reader = PdfReader(uploaded_file)
-    text = ""
-    for page in reader.pages:
-        text += page.extract_text()
-    return text
-
-def extract_rvd_data(text):
-    keywords = [
-        "Commentaire fin d'intervention et recommandations",
-        "Numéro de série DEFIBRILLATEUR",
-        "Date-Heure rapport vérification défibrillateur",
-        "Changement batterie",
-        "Changement électrodes adultes",
-        "Code site",
-        "Numéro de série Batterie",
-        "Date mise en service BATTERIE",
-        "Niveau de charge de la batterie en %",
-        "N° série nouvelle batterie",
-        "Date mise en service",
-        "Niveau de charge nouvelle batterie",
-        "Numéro de série ELECTRODES ADULTES",
-        "Numéro de série ELECTRODES ADULTES relevé",
-        "Numéro de série relevé 2",
-        "Date fabrication DEFIBRILLATEUR",
-        "Date fabrication BATTERIE",
-        "Date fabrication relevée",
-        "Date fabrication nouvelle batterie",
-        "Date de péremption ELECTRODES ADULTES",
-        "Date de péremption ELECTRODES ADULTES relevée",
-        "N° série nouvelles électrodes",
-        "Date péremption des nouvelles éléctrodes",
-    ]
-    
-    results = {}
-    for keyword in keywords:
-        pattern = re.compile(re.escape(keyword) + r"[\s:]*([^\n]*)")
-        match = pattern.search(text)
-        if match:
-            results[keyword] = match.group(1).strip()
-    return results
-
-def extract_aed_g5_data(text):
-    keywords = [
-        "N° série DAE",
-        "Capacité restante de la batterie",
-        "Date d'installation :",
-        "Rapport DAE - Erreurs en cours",
-        "Date / Heure:",
-    ]
-    
-    results = {}
-    for keyword in keywords:
-        pattern = re.compile(re.escape(keyword) + r"[\s:]*([^\n]*)")
-        match = pattern.search(text)
-        if match:
-            results[keyword] = match.group(1).strip()
-    return results
-
-def extract_aed_g3_data(text):
-    keywords = [
-        "Série DSA",
-        "Dernier échec de DSA",
-        "Numéro de lot",
-        "Date de mise en service",
-        "Capacité initiale de la batterie 12V",
-        "Capacité restante de la batterie 12V",
-        "Autotest",
-    ]
-    
-    results = {}
-    lines = text.split('\n')
-    for i, line in enumerate(lines):
-        for keyword in keywords:
-            if keyword in line:
-                value = lines[i+1].strip() if i+1 < len(lines) else ""
-                results[keyword] = value
-    return results
-
-# ========================
-# Enhanced Comparison Logic
-# ========================
 
 def parse_date(date_str):
     formats = [
@@ -423,10 +418,6 @@ def display_comparison(title, comparison):
                 
         st.markdown("---")
 
-# ========================
-# Main Application
-# ========================
-
 def main():
     st.set_page_config(page_title="Medical Device Inspector", layout="wide")
     
@@ -453,7 +444,6 @@ def main():
         
         if uploaded_files:
             for uploaded_file in uploaded_files:
-                # Process PDF files
                 if uploaded_file.type == "application/pdf":
                     text = extract_text_from_pdf(uploaded_file)
                     
@@ -467,51 +457,47 @@ def main():
                             st.session_state.processed_data['AEDG3'] = extract_aed_g3_data(text)
                         st.success(f"Processed AED {st.session_state.dae_type} Report: {uploaded_file.name}")
                 
-                # Process image files
                 else:
                     try:
                         image = Image.open(uploaded_file)
                         image = fix_orientation(image)
                         image = image.convert('RGB')
                         
-                        # Save to temp file for processing
                         with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as temp_file:
                             image.save(temp_file, format='JPEG')
                             temp_file_path = temp_file.name
                         
-                        # Classify image
                         result = classify_image(temp_file_path)
                         detected_classes = [pred['class'] for pred in result.get('predictions', []) if pred['confidence'] > 0.5]
                         
                         if detected_classes:
-                            # Process based on detected class
-                            for detected_class in detected_classes:
-                                img_data = {
-                                    'type': detected_class,
-                                    'serial': None,
-                                    'date': None,
-                                    'image': image
-                                }
-                                
-                                if detected_class in ["Defibrillateur G3", "Defibrillateur G5"]:
-                                    results = process_ocr(image)
-                                    if detected_class == "Defibrillateur G3":
-                                        img_data['serial'], img_data['date'] = extract_important_info_g3(results)
-                                    else:
-                                        img_data['serial'], img_data['date'] = extract_important_info_g5(results)
-                                
-                                elif detected_class == "Batterie":
-                                    results = process_ocr(image)
-                                    img_data['serial'], img_data['date'] = extract_important_info_batterie(results)
-                                
-                                elif detected_class == "Electrodes":
-                                    img_data['serial'], img_data['date'] = extract_important_info_electrodes(image)
-                                
-                                st.session_state.processed_data['images'].append(img_data)
-                                st.success(f"Processed {detected_class} image: {uploaded_file.name}")
+                            img_data = {
+                                'type': detected_classes[0],
+                                'serial': None,
+                                'date': None,
+                                'image': image
+                            }
+                            
+                            if "Defibrillateur" in detected_classes[0]:
+                                results = process_ocr(image)
+                                if "G3" in detected_classes[0]:
+                                    img_data['serial'], img_data['date'] = extract_important_info_g3(results)
+                                else:
+                                    img_data['serial'], img_data['date'] = extract_important_info_g5(results)
+                            
+                            elif "Batterie" in detected_classes[0]:
+                                results = process_ocr(image)
+                                img_data['serial'], img_data['date'] = extract_important_info_batterie(results)
+                            
+                            elif "Electrodes" in detected_classes[0]:
+                                img_data['serial'], img_data['date'] = extract_important_info_electrodes(image)
+                            
+                            st.session_state.processed_data['images'].append(img_data)
+                            st.success(f"Processed {detected_classes[0]} image: {uploaded_file.name}")
                         
                         else:
                             st.warning(f"No classifications found for: {uploaded_file.name}")
+                        os.unlink(temp_file_path)
                     
                     except Exception as e:
                         st.error(f"Error processing {uploaded_file.name}: {str(e)}")
@@ -547,21 +533,12 @@ def main():
     with st.expander("Document Comparison", expanded=True):
         if st.button("Run Full Analysis"):
             try:
-                if not st.session_state.processed_data.get('RVD'):
-                    st.warning("Please upload RVD document first")
-                    return
-
                 aed_results = compare_rvd_aed()
                 image_results = compare_rvd_images()
                 
-                if not aed_results and not image_results:
-                    st.error("No comparison results generated")
-                    return
-
                 display_comparison("RVD vs AED Report Comparison", aed_results)
                 display_comparison("RVD vs Image Data Comparison", image_results)
                 
-                # Show overall status
                 all_matches = all(
                     item.get('match', False)
                     for comp in [aed_results, image_results] 
@@ -593,11 +570,9 @@ def main():
             
             try:
                 with zipfile.ZipFile('export.zip', 'w') as zipf:
-                    # Add processed data
                     with zipf.open('processed_data.json', 'w') as f:
                         f.write(json.dumps(st.session_state.processed_data, indent=2).encode())
                     
-                    # Add renamed files
                     for uploaded_file in uploaded_files:
                         original_bytes = uploaded_file.getvalue()
                         
@@ -611,7 +586,6 @@ def main():
                         
                         zipf.writestr(new_name, original_bytes)
                 
-                # Provide download
                 with open("export.zip", "rb") as f:
                     st.download_button(
                         label="Download Export Package",
