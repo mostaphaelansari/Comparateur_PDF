@@ -1,10 +1,10 @@
+# Base image
 FROM python:3.10-slim
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
-    libzbar0 \
-    tesseract-ocr \
-    fonts-noto-color-emoji \
+    git git-lfs ffmpeg libsm6 libxext6 cmake rsync libgl1-mesa-glx \
+    libzbar0 tesseract-ocr fonts-noto-color-emoji \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
