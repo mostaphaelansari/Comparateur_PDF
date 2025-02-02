@@ -12,6 +12,8 @@ from inference_sdk import InferenceHTTPClient
 import easyocr
 from pyzbar.pyzbar import decode
 import io
+import pdfplumber
+
 import tempfile
 
 # Configuration
@@ -67,10 +69,10 @@ def classify_image(image_path):
     return client.infer(image_path, model_id=MODEL_ID)
 
 def extract_text_from_pdf(uploaded_file):
-    reader = PdfReader(uploaded_file)
     text = ""
-    for page in reader.pages:
-        text += page.extract_text()
+    with pdfplumber.open(uploaded_file) as pdf:
+        for page in pdf.pages:
+            text += page.extract_text() or ""  # Use `or ""` to handle pages without text
     return text
 
 def extract_rvd_data(text):
@@ -246,23 +248,42 @@ def extract_important_info_electrodes(image):
         return None, None
 
 def parse_date(date_str):
+    """Enhanced date parsing with better format handling"""
     formats = [
-        '%d/%m/%Y', '%Y-%m-%d', '%m/%d/%Y', 
-        '%d-%m-%Y', '%Y/%m/%d', '%Y%m%d',
-        '%d %b %Y', '%d %B %Y'
+        '%d/%m/%Y %H:%M',       # Handles date with time (e.g., "08/01/2025 15:11")
+        '%d/%m/%Y %H:%M:%S',    # Handles date with time including seconds (e.g., "08/01/2025 15:08:44")
+        '%Y-%m-%d %H:%M',       # Alternative date format with time
+        '%Y-%m-%d %H:%M:%S',    # Alternative date format with time including seconds
+        '%d/%m/%Y',             # Handles date without time
+        '%Y-%m-%d',             # Handles date without time (ISO format)
+        '%m/%d/%Y',             # Handles date in US format
+        '%d-%m-%Y',             # Handles date with hyphens
+        '%Y/%m/%d',             # Handles date with slashes
+        '%Y%m%d',               # Handles compact date format
+        '%d %b %Y',             # Handles date with abbreviated month name (e.g., "08 Jan 2025")
+        '%d %B %Y',             # Handles date with full month name (e.g., "08 January 2025")
     ]
-    
-    if not date_str or str(date_str).lower() == 'nan':
-        return None, "Aucune date fournie"
-    
-    clean_date = str(date_str).split()[0].strip()
-    
+
+    # Clean the date string: Remove unwanted characters and standardize separators
+    clean_date = re.sub(r'[^\d:/ -]', '', str(date_str)).strip()  # Retain digits, :, /, -, and spaces
+    clean_date = re.sub(r'/', '-', clean_date)  # Standardize to hyphens
+
+    # Extract the date part by splitting at the first occurrence of time or extra text
+    if ' ' in clean_date:
+        date_part = clean_date.split(' ')[0]  # Take only the date part
+    else:
+        date_part = clean_date
+
+    # Try parsing with cleaned date
     for fmt in formats:
         try:
-            return datetime.strptime(clean_date, fmt).date(), None
+            parsed_date = datetime.strptime(date_part, fmt).date()
+            return parsed_date, None
         except ValueError:
             continue
-    return None, f"Format non reconnu : {clean_date}"
+
+    # If no format matches, return an error message
+    return None, f"Unrecognized format: {clean_date}"
 
 def normalize_serial(serial):
     return re.sub(r'[^A-Z0-9]', '', str(serial).upper())
@@ -431,7 +452,7 @@ def main():
         st.session_state.dae_type = st.radio("Type d'AED", ("G5", "G3"), index=0)
         st.session_state.enable_ocr = st.checkbox("Activer le traitement OCR", True)
         st.markdown("---")
-        st.write("Développé par [Votre entreprise]")
+        st.write("Développé par Locacoeur]")
     
     # Section de téléversement des fichiers
     with st.expander("Téléverser des documents", expanded=True):
@@ -441,12 +462,10 @@ def main():
             accept_multiple_files=True,
             help="Téléverser des rapports PDF et des images de dispositifs"
         )
-        
         if uploaded_files:
             for uploaded_file in uploaded_files:
                 if uploaded_file.type == "application/pdf":
                     text = extract_text_from_pdf(uploaded_file)
-                    
                     if 'rapport de vérification' in uploaded_file.name.lower():
                         st.session_state.processed_data['RVD'] = extract_rvd_data(text)
                         st.success(f"RVD traité : {uploaded_file.name}")
