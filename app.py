@@ -7,7 +7,6 @@ import numpy as np
 import zipfile
 from datetime import datetime
 from PIL import Image, ImageEnhance, ImageFilter, ExifTags
-from PyPDF2 import PdfReader
 from inference_sdk import InferenceHTTPClient
 import easyocr
 from pyzbar.pyzbar import decode
