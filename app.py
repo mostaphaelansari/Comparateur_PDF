@@ -19,14 +19,14 @@ API_URL = "https://detect.roboflow.com"
 MODEL_ID = "medical-object-classifier/3"
 ALLOWED_EXTENSIONS = {'pdf', 'png', 'jpg', 'jpeg'}
 
-# Initialize clients
+# Initialisation des clients
 client = InferenceHTTPClient(
     api_url=API_URL,
     api_key=st.secrets["API_KEY"]
 )
-reader = easyocr.Reader(['en'], gpu=False)
+reader = easyocr.Reader(['en'], gpu=True)
 
-# Session state initialization
+# Initialisation de l'état de session
 if 'processed_data' not in st.session_state:
     st.session_state.processed_data = {
         'RVD': {},
@@ -102,9 +102,9 @@ def extract_rvd_data(text):
     
     results = {}
     for keyword in keywords:
-        # Special handling for battery serial number
+        # Gestion spéciale pour le numéro de série de la batterie
         if keyword == "N° série nouvelle batterie":
-            # Use more precise pattern to capture serial number
+            # Utilisation d'un motif plus précis pour capturer le numéro de série
             pattern = re.compile(
                 re.escape(keyword) + 
                 r"[\s:]*([A-Za-z0-9\-]+)(?=\s|$)",
@@ -116,9 +116,9 @@ def extract_rvd_data(text):
         match = pattern.search(text)
         if match:
             value = match.group(1).strip()
-            # Additional cleanup for battery serial
+            # Nettoyage supplémentaire pour le numéro de série de la batterie
             if keyword == "N° série nouvelle batterie":
-                value = value.split()[0]  # Take first part if space separated
+                value = value.split()[0]  # Prendre la première partie si séparée par un espace
             results[keyword] = value
     return results
 
@@ -253,7 +253,7 @@ def parse_date(date_str):
     ]
     
     if not date_str or str(date_str).lower() == 'nan':
-        return None, "No date provided"
+        return None, "Aucune date fournie"
     
     clean_date = str(date_str).split()[0].strip()
     
@@ -262,7 +262,7 @@ def parse_date(date_str):
             return datetime.strptime(clean_date, fmt).date(), None
         except ValueError:
             continue
-    return None, f"Unrecognized format: {clean_date}"
+    return None, f"Format non reconnu : {clean_date}"
 
 def normalize_serial(serial):
     return re.sub(r'[^A-Z0-9]', '', str(serial).upper())
@@ -273,16 +273,16 @@ def compare_rvd_aed():
         aed_type = f'AEDG{st.session_state.dae_type[-1]}'
         
         if not st.session_state.processed_data.get('RVD'):
-            st.error("Missing RVD data for comparison")
+            st.error("Données RVD manquantes pour la comparaison")
             return {}
         if not st.session_state.processed_data.get(aed_type):
-            st.error(f"Missing {aed_type} data for comparison")
+            st.error(f"Données {aed_type} manquantes pour la comparaison")
             return {}
 
         rvd = st.session_state.processed_data['RVD']
         aed = st.session_state.processed_data[aed_type]
         
-        # Serial Number Comparison
+        # Comparaison du numéro de série
         aed_key = 'N° série DAE' if st.session_state.dae_type == 'G5' else 'Série DSA'
         results['serial'] = {
             'rvd': rvd.get('Numéro de série DEFIBRILLATEUR', 'N/A'),
@@ -291,7 +291,7 @@ def compare_rvd_aed():
                     normalize_serial(aed.get(aed_key, ''))
         }
         
-        # Date Comparison
+        # Comparaison des dates
         rvd_date, rvd_err = parse_date(rvd.get('Date-Heure rapport vérification défibrillateur', ''))
         aed_date_key = 'Date / Heure:' if st.session_state.dae_type == 'G5' else 'Date de mise en service'
         aed_date, aed_err = parse_date(aed.get(aed_date_key, ''))
@@ -302,7 +302,7 @@ def compare_rvd_aed():
             'errors': [e for e in [rvd_err, aed_err] if e]
         }
         
-        # Battery Comparison
+        # Comparaison de la batterie
         try:
             rvd_batt = float(rvd.get('Niveau de charge de la batterie en %', 0))
             aed_batt_text = aed.get('Capacité restante de la batterie', '0') if st.session_state.dae_type == 'G5' \
@@ -315,7 +315,7 @@ def compare_rvd_aed():
             }
         except Exception as e:
             results['battery'] = {
-                'error': f"Invalid battery data: {str(e)}",
+                'error': f"Données de batterie invalides : {str(e)}",
                 'match': False
             }
         
@@ -323,23 +323,23 @@ def compare_rvd_aed():
         return results
     
     except KeyError as e:
-        st.error(f"Missing data key: {str(e)}")
+        st.error(f"Clé de données manquante : {str(e)}")
         return {}
     except Exception as e:
-        st.error(f"Comparison error: {str(e)}")
+        st.error(f"Erreur de comparaison : {str(e)}")
         return {}
 
 def compare_rvd_images():
     try:
         results = {}
         if not st.session_state.processed_data.get('RVD'):
-            st.error("Missing RVD data for comparison")
+            st.error("Données RVD manquantes pour la comparaison")
             return {}
             
         rvd = st.session_state.processed_data['RVD']
         images = st.session_state.processed_data['images']
         
-        # Battery Comparison
+        # Comparaison de la batterie
         battery_data = next((i for i in images if i['type'] == 'Batterie'), None)
         if battery_data:
             results['battery_serial'] = {
@@ -358,7 +358,7 @@ def compare_rvd_images():
                 'errors': [e for e in [rvd_err, img_err] if e]
             }
         
-        # Electrode Comparison
+        # Comparaison des électrodes
         electrode_data = next((i for i in images if i['type'] == 'Electrodes'), None)
         if electrode_data:
             results['electrode_serial'] = {
@@ -381,15 +381,15 @@ def compare_rvd_images():
         return results
     
     except KeyError as e:
-        st.error(f"Missing data key: {str(e)}")
+        st.error(f"Clé de données manquante : {str(e)}")
         return {}
     except Exception as e:
-        st.error(f"Comparison error: {str(e)}")
+        st.error(f"Erreur de comparaison : {str(e)}")
         return {}
 
 def display_comparison(title, comparison):
     if not comparison:
-        st.warning("No comparison data available")
+        st.warning("Aucune donnée de comparaison disponible")
         return
     
     st.subheader(title)
@@ -419,27 +419,27 @@ def display_comparison(title, comparison):
         st.markdown("---")
 
 def main():
-    st.set_page_config(page_title="Medical Device Inspector", layout="wide")
+    st.set_page_config(page_title="Inspecteur de dispositifs médicaux", layout="wide")
     
-    # Header Section
-    st.title("Medical Device Inspection System")
+    # Section d'en-tête
+    st.title("Système d'inspection des dispositifs médicaux")
     st.markdown("---")
     
-    # Configuration Sidebar
+    # Barre latérale de configuration
     with st.sidebar:
         st.header("Configuration")
-        st.session_state.dae_type = st.radio("AED Type", ("G5", "G3"), index=0)
-        st.session_state.enable_ocr = st.checkbox("Enable OCR Processing", True)
+        st.session_state.dae_type = st.radio("Type d'AED", ("G5", "G3"), index=0)
+        st.session_state.enable_ocr = st.checkbox("Activer le traitement OCR", True)
         st.markdown("---")
-        st.write("Developed by [Your Company]")
+        st.write("Développé par [Votre entreprise]")
     
-    # File Upload Section
-    with st.expander("Upload Documents", expanded=True):
+    # Section de téléversement des fichiers
+    with st.expander("Téléverser des documents", expanded=True):
         uploaded_files = st.file_uploader(
-            "Drag and drop files here",
+            "Glissez et déposez des fichiers ici",
             type=ALLOWED_EXTENSIONS,
             accept_multiple_files=True,
-            help="Upload PDF reports and device images"
+            help="Téléverser des rapports PDF et des images de dispositifs"
         )
         
         if uploaded_files:
@@ -449,13 +449,13 @@ def main():
                     
                     if 'rapport de vérification' in uploaded_file.name.lower():
                         st.session_state.processed_data['RVD'] = extract_rvd_data(text)
-                        st.success(f"Processed RVD: {uploaded_file.name}")
+                        st.success(f"RVD traité : {uploaded_file.name}")
                     elif 'aed' in uploaded_file.name.lower():
                         if st.session_state.dae_type == "G5":
                             st.session_state.processed_data['AEDG5'] = extract_aed_g5_data(text)
                         else:
                             st.session_state.processed_data['AEDG3'] = extract_aed_g3_data(text)
-                        st.success(f"Processed AED {st.session_state.dae_type} Report: {uploaded_file.name}")
+                        st.success(f"Rapport AED {st.session_state.dae_type} traité : {uploaded_file.name}")
                 
                 else:
                     try:
@@ -493,51 +493,51 @@ def main():
                                 img_data['serial'], img_data['date'] = extract_important_info_electrodes(image)
                             
                             st.session_state.processed_data['images'].append(img_data)
-                            st.success(f"Processed {detected_classes[0]} image: {uploaded_file.name}")
+                            st.success(f"Image {detected_classes[0]} traitée : {uploaded_file.name}")
                         
                         else:
-                            st.warning(f"No classifications found for: {uploaded_file.name}")
+                            st.warning(f"Aucune classification trouvée pour : {uploaded_file.name}")
                         os.unlink(temp_file_path)
                     
                     except Exception as e:
-                        st.error(f"Error processing {uploaded_file.name}: {str(e)}")
+                        st.error(f"Erreur lors du traitement de {uploaded_file.name} : {str(e)}")
     
-    # Processed Data Display
-    with st.expander("Processed Data", expanded=True):
+    # Affichage des données traitées
+    with st.expander("Données traitées", expanded=True):
         col1, col2 = st.columns(2)
         
         with col1:
-            st.subheader("RVD Data")
+            st.subheader("Données RVD")
             st.json(st.session_state.processed_data['RVD'], expanded=False)
         
         with col2:
-            st.subheader(f"AED {st.session_state.dae_type} Data")
+            st.subheader(f"Données AED {st.session_state.dae_type}")
             aed_type = f'AEDG{st.session_state.dae_type[-1]}'
             aed_data = st.session_state.processed_data.get(aed_type, {})
-            st.json(aed_data if aed_data else {"status": "No AED data found"}, expanded=False)
+            st.json(aed_data if aed_data else {"status": "Aucune donnée AED trouvée"}, expanded=False)
     
-    # Image Results Display
+    # Affichage des résultats d'analyse d'images
     if st.session_state.processed_data['images']:
-        with st.expander("Image Analysis Results", expanded=True):
+        with st.expander("Résultats d'analyse d'images", expanded=True):
             cols = st.columns(3)
             for idx, img_data in enumerate(st.session_state.processed_data['images']):
                 with cols[idx % 3]:
                     st.image(img_data['image'], use_column_width=True)
                     st.markdown(f"""
                     **Type:** {img_data['type']}  
-                    **Serial:** {img_data.get('serial', 'N/A')}  
+                    **Numéro de série:** {img_data.get('serial', 'N/A')}  
                     **Date:** {img_data.get('date', 'N/A')}
                     """)
     
-    # Enhanced Comparison Section
-    with st.expander("Document Comparison", expanded=True):
-        if st.button("Run Full Analysis"):
+    # Section de comparaison améliorée
+    with st.expander("Comparaison des documents", expanded=True):
+        if st.button("Lancer l'analyse complète"):
             try:
                 aed_results = compare_rvd_aed()
                 image_results = compare_rvd_images()
                 
-                display_comparison("RVD vs AED Report Comparison", aed_results)
-                display_comparison("RVD vs Image Data Comparison", image_results)
+                display_comparison("Comparaison RVD vs Rapport AED", aed_results)
+                display_comparison("Comparaison RVD vs Données d'images", image_results)
                 
                 all_matches = all(
                     item.get('match', False)
@@ -546,26 +546,26 @@ def main():
                 )
                 
                 if all_matches:
-                    st.success("All checks passed! Device is compliant.")
+                    st.success("Tous les contrôles sont réussis ! Le dispositif est conforme.")
                 else:
                     failed = [
                         k for comp in [aed_results, image_results] 
                         for k, v in comp.items() 
                         if not v.get('match', True)
                     ]
-                    st.error(f"Validation failed for: {', '.join(failed)}")
+                    st.error(f"Échec de validation pour : {', '.join(failed)}")
             
             except Exception as e:
-                st.error(f"Analysis failed: {str(e)}")
+                st.error(f"Échec de l'analyse : {str(e)}")
     
-    # File Management Section
-    with st.expander("File Export", expanded=True):
-        if st.button("Generate Export Package"):
+    # Section de gestion des fichiers
+    with st.expander("Exportation des fichiers", expanded=True):
+        if st.button("Générer un package d'export"):
             if not st.session_state.processed_data.get('RVD'):
-                st.warning("No RVD data available for naming")
+                st.warning("Aucune donnée RVD disponible pour le nommage")
                 return
             
-            code_site = st.session_state.processed_data['RVD'].get('Code site', 'UNKNOWN')
+            code_site = st.session_state.processed_data['RVD'].get('Code site', 'INCONNU')
             date_str = datetime.now().strftime("%Y%m%d")
             
             try:
@@ -588,14 +588,14 @@ def main():
                 
                 with open("export.zip", "rb") as f:
                     st.download_button(
-                        label="Download Export Package",
+                        label="Télécharger le package d'export",
                         data=f,
                         file_name=f"Inspection_{code_site}_{date_str}.zip",
                         mime="application/zip"
                     )
             
             except Exception as e:
-                st.error(f"Error creating export package: {str(e)}")
+                st.error(f"Erreur lors de la création du package d'export : {str(e)}")
 
 if __name__ == "__main__":
     main()
