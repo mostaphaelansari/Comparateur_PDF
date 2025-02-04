@@ -1,24 +1,41 @@
-# Base image
+# Use Python slim base image
 FROM python:3.10-slim
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
-    git git-lfs ffmpeg libsm6 libxext6 cmake rsync libgl1-mesa-glx \
-    libzbar0 tesseract-ocr fonts-noto-color-emoji \
+    libgl1 \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    tesseract-ocr \
+    poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
-# Set working directory
+# Create app directory
 WORKDIR /app
 
-# Copy requirements and install Python dependencies
+# Install Python dependencies first for caching
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest of the application code
+# Copy application code
 COPY . .
 
-# Expose the port Streamlit runs on
-EXPOSE 8501
+# Create swap file for memory optimization
+RUN dd if=/dev/zero of=/swapfile bs=1M count=1024 && \
+    chmod 600 /swapfile && \
+    mkswap /swapfile && \
+    swapon /swapfile
 
-# Command to run the app
-CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+# Streamlit configuration
+ENV STREAMLIT_SERVER_PORT=8080
+EXPOSE 8080
+
+# Startup command
+CMD ["streamlit", "run", "app/main.py", \
+    "--server.port=8080", \
+    "--server.address=0.0.0.0", \
+    "--server.headless=true", \
+    "--server.enableCORS=false", \
+    "--server.enableXsrfProtection=false"]
