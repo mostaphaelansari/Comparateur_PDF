@@ -1,5 +1,5 @@
 app = "your-medical-inspector-app"
-primary_region = "iad"  # Virginia region
+primary_region = "Eu"  # Virginia region
 
 [build]
   dockerfile = "Dockerfile"
