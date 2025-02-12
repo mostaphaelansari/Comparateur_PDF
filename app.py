@@ -19,7 +19,7 @@ import tempfile
 API_URL = "https://detect.roboflow.com"
 MODEL_ID = "medical-object-classifier/3"
 ALLOWED_EXTENSIONS = {'pdf', 'png', 'jpg', 'jpeg'}
-
+ 
 # Initialisation des clients
 client = InferenceHTTPClient(
     api_url=API_URL,
@@ -74,6 +74,7 @@ def extract_text_from_pdf(uploaded_file):
             text += page.extract_text() or ""  # Use `or ""` to handle pages without text
     return text
 
+
 def extract_rvd_data(text):
     keywords = [
         "Commentaire fin d'intervention et recommandations",
@@ -102,25 +103,41 @@ def extract_rvd_data(text):
     ]
     
     results = {}
+    lines = text.splitlines()  # Split text into lines
+
     for keyword in keywords:
-        # Gestion spéciale pour le numéro de série de la batterie
+        value = "Non trouvé"
+        
+        # Regular expression for detecting the keyword followed by its value
         if keyword == "N° série nouvelle batterie":
-            # Utilisation d'un motif plus précis pour capturer le numéro de série
             pattern = re.compile(
-                re.escape(keyword) + 
-                r"[\s:]*([A-Za-z0-9\-]+)(?=\s|$)",
-                re.IGNORECASE
+                re.escape(keyword) + r"[\s:]*([A-Za-z0-9\-]+)(?=\s|$)", re.IGNORECASE
             )
         else:
             pattern = re.compile(re.escape(keyword) + r"[\s:]*([^\n]*)")
         
-        match = pattern.search(text)
-        if match:
-            value = match.group(1).strip()
-            # Nettoyage supplémentaire pour le numéro de série de la batterie
-            if keyword == "N° série nouvelle batterie":
-                value = value.split()[0]  # Prendre la première partie si séparée par un espace
-            results[keyword] = value
+        for i, line in enumerate(lines):
+            stripped_line = line.strip()
+            
+            if stripped_line.lower().startswith(keyword.lower()):
+                match = pattern.search(stripped_line)
+                if match:
+                    value = match.group(1).strip()
+                    if keyword == "N° série nouvelle batterie":
+                        value = value.split()[0]  # If value is split, take first part
+                    break
+                # If not found, check the next lines
+                else:
+                    j = i + 1
+                    while j < len(lines):
+                        next_line = lines[j].strip()
+                        if next_line and not any(x in next_line for x in ["Vérification", "Validation"]):
+                            value = next_line
+                            break
+                        j += 1
+        
+        results[keyword] = value
+
     return results
 
 def extract_aed_g5_data(text):
