@@ -12,14 +12,14 @@ import easyocr
 from pyzbar.pyzbar import decode
 import io
 import pdfplumber
-
+from typing import Dict
 import tempfile
 
 # Configuration
 API_URL = "https://detect.roboflow.com"
 MODEL_ID = "medical-object-classifier/3"
 ALLOWED_EXTENSIONS = {'pdf', 'png', 'jpg', 'jpeg'}
-
+ 
 # Initialisation des clients
 client = InferenceHTTPClient(
     api_url=API_URL,
@@ -74,7 +74,17 @@ def extract_text_from_pdf(uploaded_file):
             text += page.extract_text() or ""  # Use `or ""` to handle pages without text
     return text
 
-def extract_rvd_data(text):
+
+def extract_rvd_data(text: str) -> Dict[str, str]:
+    """
+    Extract data from text using specific keywords and pattern matching.
+    
+    Args:
+        text (str): Input text to process
+        
+    Returns:
+        Dict[str, str]: Dictionary of extracted key-value pairs
+    """
     keywords = [
         "Commentaire fin d'intervention et recommandations",
         "Numéro de série DEFIBRILLATEUR",
@@ -102,25 +112,77 @@ def extract_rvd_data(text):
     ]
     
     results = {}
+    lines = text.splitlines()
+
     for keyword in keywords:
-        # Gestion spéciale pour le numéro de série de la batterie
-        if keyword == "N° série nouvelle batterie":
-            # Utilisation d'un motif plus précis pour capturer le numéro de série
+        value = "Non trouvé"
+        
+        # Special pattern for serial numbers
+        if any(x in keyword.lower() for x in ["n° série", "numéro de série"]):
             pattern = re.compile(
-                re.escape(keyword) + 
-                r"[\s:]*([A-Za-z0-9\-]+)(?=\s|$)",
+                re.escape(keyword) + r"[\s:]*([A-Za-z0-9\-]+)(?=\s|$)", 
                 re.IGNORECASE
             )
+        # Special pattern for Code site
+        elif keyword == "Code site":
+            pattern = re.compile(
+                r"Code site\s+([A-Z0-9]+)", 
+                re.IGNORECASE
+            )
+        # Default pattern for other fields
         else:
-            pattern = re.compile(re.escape(keyword) + r"[\s:]*([^\n]*)")
+            pattern = re.compile(
+                re.escape(keyword) + r"[\s:]*([^\n]*)"
+            )
         
-        match = pattern.search(text)
-        if match:
-            value = match.group(1).strip()
-            # Nettoyage supplémentaire pour le numéro de série de la batterie
-            if keyword == "N° série nouvelle batterie":
-                value = value.split()[0]  # Prendre la première partie si séparée par un espace
-            results[keyword] = value
+        for i, line in enumerate(lines):
+            stripped_line = line.strip()
+            
+            # Check if line starts with keyword (case-insensitive)
+            if stripped_line.lower().startswith(keyword.lower()):
+                match = pattern.search(stripped_line)
+                if match:
+                    value = match.group(1).strip()
+                    # Special handling for serial numbers
+                    if any(x in keyword.lower() for x in ["n° série", "numéro de série"]):
+                        value = value.split()[0]  # Take first part if value is split
+                else:
+                    # If not found on same line, check next lines
+                    j = i + 1
+                    while j < len(lines):
+                        next_line = lines[j].strip()
+                        # Skip verification/validation lines
+                        if next_line and not any(x in next_line for x in ["Vérification", "Validation"]):
+                            # Additional validation for specific fields
+                            if ("date" in keyword.lower() and 
+                                not re.search(r'\d{2}[/-]\d{2}[/-]\d{4}', next_line)):
+                                j += 1
+                                continue
+                            value = next_line
+                            break
+                        j += 1
+                break
+            
+            # Special handling for Code site if not found at start of line
+            elif keyword == "Code site":
+                match = pattern.search(stripped_line)
+                if match:
+                    value = match.group(1)
+                    break
+        
+        # Clean up extracted values
+        if value != "Non trouvé":
+            # Remove any trailing verification/validation text
+            value = re.sub(r'\s*(?:Vérification|Validation).*$', '', value)
+            # Clean up dates
+            if "date" in keyword.lower() and re.search(r'\d{2}[/-]\d{2}[/-]\d{4}', value):
+                value = re.search(r'\d{2}[/-]\d{2}[/-]\d{4}(?:\s+\d{2}:\d{2})?', value).group(0)
+            # Clean up percentages
+            elif "%" in keyword:
+                value = re.sub(r'[^\d.]', '', value)
+        
+        results[keyword] = value
+
     return results
 
 def extract_aed_g5_data(text):
@@ -451,7 +513,7 @@ def main():
         st.session_state.dae_type = st.radio("Type d'AED", ("G5", "G3"), index=0)
         st.session_state.enable_ocr = st.checkbox("Activer le traitement OCR", True)
         st.markdown("---")
-        st.write("Développé par Locacoeur]")
+        st.write("Développé par Locacoeur")
     
     # Section de téléversement des fichiers
     with st.expander("Téléverser des documents", expanded=True):
