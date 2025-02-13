@@ -597,44 +597,71 @@ def main():
     # Header Section
     with st.container():
         col1, col2 = st.columns([1, 6])
-        with col1:
-            st.image("https://www.locacoeur.com/wp-content/uploads/2020/04/Locacoeur_Logo.png", width=100)
-        with col2:
-            st.title("Système d'inspection des dispositifs médicaux")
-        st.markdown("---")
+    with col1:
+        st.image("https://www.locacoeur.com/wp-content/uploads/2020/04/Locacoeur_Logo.png", width=100)
+    with col2:
+        st.title("Système d'inspection des dispositifs médicaux")
+        st.markdown("*Solution intégrée pour la gestion et l'inspection des DAE*")
     
     # Sidebar Configuration
     with st.sidebar:
         st.markdown("### ⚙️ Paramètres de configuration")
         st.markdown("---")
+        
+        # Device Configuration
+        st.subheader("📱 Configuration du dispositif")
         st.session_state.dae_type = st.radio(
-            "**Type d'AED**",
+            "Type d'AED",
             ("G5", "G3"),
             index=0,
             help="Sélectionnez le type de dispositif à inspecter"
         )
+        
+        # Processing Options
+        st.subheader("🔧 Options de traitement")
         st.session_state.enable_ocr = st.checkbox(
-            "**Activer le traitement OCR**",
+            "Activer l'OCR",
             True,
             help="Active la reconnaissance de texte sur les images"
         )
+        st.session_state.auto_classify = st.checkbox(
+            "Classification automatique",
+            True,
+            help="Active la classification automatique des documents"
+        )
+        
+        # Help Section
         st.markdown("---")
-        st.markdown("#### 🔍 Aide à l'utilisation")
-        st.info("""
-            1. Téléversez les documents requis
-            2. Vérifiez les données traitées
-            3. Lancez l'analyse comparative
-            4. Exportez les résultats
+        st.markdown("#### 🔍 Guide d'utilisation")
+        with st.expander("Comment utiliser l'application ?", expanded=False):
+            st.markdown("""
+                1. **Préparation** 📋
+                   - Vérifiez que vos documents sont au format requis
+                   - Assurez-vous que les images sont nettes
+                
+                2. **Téléversement** 📤
+                   - Glissez-déposez vos fichiers
+                   - Attendez le traitement complet
+                
+                3. **Vérification** ✅
+                   - Examinez les données extraites
+                   - Validez les résultats
+                
+                4. **Export** 📥
+                   - Choisissez le format d'export
+                   - Téléchargez vos résultats
             """)
+        
         st.markdown("---")
         st.caption("Développé par Locacoeur • v2.1.0")
     
+    
     # Main Content Tabs
-    tab1, tab2, tab3 = st.tabs(["📤 Téléversement", "📊 Résultats", "📤 Export"])
+    tab1, tab2, tab3 = st.tabs(["📂 Téléversement", "📊 Résultats", "📤 Export"])
     
     with tab1:
         # File Upload Section
-        st.markdown("### 📥 Téléversement des documents")
+        st.markdown("### 📂 Téléversement des documents")
         with st.expander("Zone de dépôt des fichiers", expanded=True):
             uploaded_files = st.file_uploader(
                 "Glissez et déposez vos fichiers ici",
@@ -733,7 +760,7 @@ def main():
                 with cols[idx % 3]:
                     with st.container():
                         st.markdown("<div class='card'>", unsafe_allow_html=True)
-                        st.image(img_data['image'], use_column_width=True)
+                        st.image(img_data['image'], use_container_width=True)
                         st.markdown(f"""
                         **Type:** `{img_data['type']}`  
                         **Série:** `{img_data.get('serial', 'N/A')}`  
