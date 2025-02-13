@@ -602,7 +602,7 @@ def main():
             cols = st.columns(3)
             for idx, img_data in enumerate(st.session_state.processed_data['images']):
                 with cols[idx % 3]:
-                    st.image(img_data['image'], use_column_width=True)
+                    st.image(img_data['image'], use_container_width=True)
                     st.markdown(f"""
                     **Type:** {img_data['type']}  
                     **Numéro de série:** {img_data.get('serial', 'N/A')}  
