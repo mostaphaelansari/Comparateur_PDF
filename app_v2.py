@@ -761,6 +761,19 @@ def main():
             st.title("📋vs📋 Comparaison des documents")
             # Section de comparaison améliorée
             with st.expander("Comparaison des documents", expanded=True):
+                st.markdown("""
+                        <style>
+                        div.stButton > button:first-child {
+                            background-color: #007BFF; /* Couleur verte */
+                            color: white;
+                            border-radius: 10px;
+                            font-size: 18px;
+                            padding: 10px 24px;
+                        }
+                        </style>
+                    """, unsafe_allow_html=True)
+
+                    # Bouton Streamlit 
                 if st.button("Lancer l'analyse complète"):
                     try:
                         aed_results = compare_rvd_aed()
@@ -789,44 +802,97 @@ def main():
                         st.error(f"Échec de l'analyse : {str(e)}")
     with tab4:
         st.title("📤 Export automatisé")
-        # Section de gestion des fichiers
-        with st.expander("Exportation des fichiers", expanded=True):
-            if st.button("Générer un package d'export"):
-                if not st.session_state.processed_data.get('RVD'):
-                    st.warning("Aucune donnée RVD disponible pour le nommage")
-                    return
-                
-                code_site = st.session_state.processed_data['RVD'].get('Code site', 'INCONNU')
-                date_str = datetime.now().strftime("%Y%m%d")
-                
-                try:
-                    with zipfile.ZipFile('export.zip', 'w') as zipf:
-                        with zipf.open('processed_data.json', 'w') as f:
-                            f.write(json.dumps(st.session_state.processed_data, indent=2).encode())
-                        
-                        for uploaded_file in uploaded_files:
-                            original_bytes = uploaded_file.getvalue()
-                            
-                            if uploaded_file.type == "application/pdf":
-                                if 'rapport de vérification' in uploaded_file.name.lower():
-                                    new_name = f"RVD_{code_site}_{date_str}.pdf"
-                                else:
-                                    new_name = f"AED_{st.session_state.dae_type}_{code_site}_{date_str}.pdf"
-                            else:
-                                new_name = f"IMAGE_{code_site}_{date_str}_{uploaded_file.name}"
-                            
-                            zipf.writestr(new_name, original_bytes)
+        with st.container():
+            col_config, col_preview = st.columns([1, 2])
+            
+            with col_config:
+                with st.form("export_config"):
+                    st.markdown("#### ⚙️ Paramètres d'export")
+                    export_format = st.selectbox("Format de sortie", ["ZIP", "PDF", "CSV", "XLSX"], index=0)
+                    include_images = st.checkbox("Inclure les images", True)
+                    watermark = st.checkbox("Ajouter un filigrane", True)
+                    st.markdown("---")
                     
-                    with open("export.zip", "rb") as f:
-                        st.download_button(
-                            label="Télécharger le package d'export",
-                            data=f,
-                            file_name=f"Inspection_{code_site}_{date_str}.zip",
-                            mime="application/zip"
-                        )
-                
-                except Exception as e:
-                    st.error(f"Erreur lors de la création du package d'export : {str(e)}")
+                    # Section de gestion des fichiers
+                    with st.expander("Exportation des fichiers", expanded=True):
+                        if st.form_submit_button("Générer un package d'export"):
+                            if not st.session_state.get('processed_data', {}).get('RVD'):
+                                st.warning("Aucune donnée RVD disponible pour le nommage")
+                                return
+                            
+                            code_site = st.session_state.processed_data['RVD'].get('Code site', 'INCONNU')
+                            date_str = datetime.now().strftime("%Y%m%d")
+                            
+                            try:
+                                with zipfile.ZipFile('export.zip', 'w') as zipf:
+                                    with zipf.open('processed_data.json', 'w') as f:
+                                        f.write(json.dumps(st.session_state.processed_data, indent=2).encode())
+                                    
+                                    if 'uploaded_files' in st.session_state:
+                                        for uploaded_file in st.session_state.uploaded_files:
+                                            original_bytes = uploaded_file.getvalue()
+                                            
+                                            if uploaded_file.type == "application/pdf":
+                                                if 'rapport de vérification' in uploaded_file.name.lower():
+                                                    new_name = f"RVD_{code_site}_{date_str}.pdf"
+                                                else:
+                                                    new_name = f"AED_{st.session_state.get('dae_type', 'UNKNOWN')}_{code_site}_{date_str}.pdf"
+                                            else:
+                                                new_name = f"IMAGE_{code_site}_{date_str}_{uploaded_file.name}"
+                                            
+                                            zipf.writestr(new_name, original_bytes)
+                                
+                                    st.session_state.export_ready = True
+                                
+                                    if os.path.exists('export.zip'):
+                                        with open("export.zip", "rb") as f:
+                                            st.download_button(
+                                                label="Télécharger le package d'export",
+                                                data=f,
+                                                file_name=f"Inspection_{code_site}_{date_str}.zip",
+                                                mime="application/zip"
+                                            )
+                            
+                            except Exception as e:
+                                st.error(f"Erreur lors de la création du package d'export : {str(e)}")
+            
+            with col_preview:
+                st.markdown("#### 👁️ Aperçu de l'export")
+                if st.session_state.get('export_ready'):
+                    st.success("✅ Package prêt pour téléchargement !")
+                    
+                    preview_data = {
+                        "format": export_format,
+                        "fichiers_inclus": [
+                            "rapport_principal.pdf",
+                            "donnees_techniques.csv",
+                            *(["images.zip"] if include_images else [])
+                        ],
+                        "taille_estimee": f"{(len(st.session_state.get('uploaded_files', []))*0.5):.1f} MB"
+                    }
+                    st.json(preview_data)
+                    
+                    if os.path.exists('export.zip'):
+                        with open("export.zip", "rb") as f:
+                            if st.download_button(
+                                label="📥 Télécharger l'export complet",
+                                data=f,
+                                file_name=f"Inspection_{datetime.now().strftime('%Y%m%d')}.zip",
+                                mime="application/zip",
+                                help="Cliquez pour télécharger le package complet",
+                                use_container_width=True,
+                                type="primary"
+                            ):
+                                st.balloons()
+                else:
+                    st.markdown(
+                        """
+                        <div style="padding: 2rem; text-align: center; opacity: 0.5;">
+                            ⚠️ Aucun export généré
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
 
 if __name__ == "__main__":
     main()
