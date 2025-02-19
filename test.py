@@ -525,70 +525,92 @@ def compare_rvd_images():
         if not st.session_state.processed_data.get('RVD'):
             st.error("Données RVD manquantes pour la comparaison")
             return {}
-            
+
         rvd = st.session_state.processed_data['RVD']
         images = st.session_state.processed_data['images']
-        
-        # Comparaison de la batterie
+
+        # Mapping of RVD fields based on change status
+        field_mapping = {
+            "batterie": {
+                "serial": "Numéro de série Batterie" if rvd.get("Changement batterie") == "Non" else "N° série nouvelle batterie",
+                "date": "Date fabrication BATTERIE"
+            },
+            "electrodes_adultes": {
+                "serial": "Numéro de série ELECTRODES ADULTES" if rvd.get("Changement électrodes adultes") == "Non" else "N° série nouvelles électrodes",
+                "date": "Date de péremption ELECTRODES ADULTES" if rvd.get("Changement électrodes adultes") == "Non" else "Date péremption des nouvelles éléctrodes"
+            },
+            "electrodes_pediatriques": {
+                "serial": "N/A",  # No default serial for pediatric electrodes
+                "date": "N/A"  # No default date for pediatric electrodes
+            }
+        }
+
+        # Check if pediatric electrodes have changed
+        if rvd.get("Changement électrodes pédiatriques") == "Oui":
+            field_mapping["electrodes_pediatriques"] = {
+                "serial": "N° série nouvelles électrodes pédiatriques",
+                "date": "Date péremption des nouvelles éléctrodes pédiatriques"
+            }
+
+        # Compare battery data
         battery_data = next((i for i in images if i['type'] == 'Batterie'), None)
         if battery_data:
             results['battery_serial'] = {
-                'rvd': rvd.get('Numéro de série Batterie', 'N/A'),
+                'rvd': rvd.get(field_mapping["batterie"]["serial"], 'N/A'),
                 'image': battery_data.get('serial', 'N/A'),
-                'match': normalize_serial(rvd.get('Numéro de série Batterie', '')) ==
-                        normalize_serial(battery_data.get('serial', ''))
+                'match': normalize_serial(rvd.get(field_mapping["batterie"]["serial"], '')) ==
+                         normalize_serial(battery_data.get('serial', ''))
             }
-            
-            rvd_date, rvd_err = parse_date(rvd.get('Date fabrication BATTERIE', ''))
+
+            rvd_date, rvd_err = parse_date(rvd.get(field_mapping["batterie"]["date"], ''))
             img_date, img_err = parse_date(battery_data.get('date', ''))
             results['battery_date'] = {
-                'rvd': rvd.get('Date fabrication BATTERIE', 'N/A'),
+                'rvd': rvd.get(field_mapping["batterie"]["date"], 'N/A'),
                 'image': battery_data.get('date', 'N/A'),
                 'match': rvd_date == img_date if not (rvd_err or img_err) else False,
                 'errors': [e for e in [rvd_err, img_err] if e]
             }
-        
-        # Comparaison des électrodes
+
+        # Compare adult electrodes data
         electrode_data = next((i for i in images if i['type'] == 'Electrodes'), None)
         if electrode_data:
             results['electrode_serial'] = {
-                'rvd': rvd.get("Numéro de série ELECTRODES ADULTES", 'N/A'),
+                'rvd': rvd.get(field_mapping["electrodes_adultes"]["serial"], 'N/A'),
                 'image': electrode_data.get('serial', 'N/A'),
-                'match': normalize_serial(rvd.get('Numéro de série ELECTRODES ADULTES', '')) ==
-                        normalize_serial(electrode_data.get('serial', ''))
+                'match': normalize_serial(rvd.get(field_mapping["electrodes_adultes"]["serial"], '')) ==
+                         normalize_serial(electrode_data.get('serial', ''))
             }
-            
-            rvd_date, rvd_err = parse_date(rvd.get('Date de péremption ELECTRODES ADULTES', ''))
+
+            rvd_date, rvd_err = parse_date(rvd.get(field_mapping["electrodes_adultes"]["date"], ''))
             img_date, img_err = parse_date(electrode_data.get('date', ''))
             results['electrode_date'] = {
-                'rvd': rvd.get('Date de péremption ELECTRODES ADULTES', 'N/A'),
+                'rvd': rvd.get(field_mapping["electrodes_adultes"]["date"], 'N/A'),
                 'image': electrode_data.get('date', 'N/A'),
                 'match': rvd_date == img_date if not (rvd_err or img_err) else False,
                 'errors': [e for e in [rvd_err, img_err] if e]
             }
-        
-        # Comparaison du défibrillateur
-        defibrillator_data = next((i for i in images if i['type'] == 'Defibrillateur G5'), None)
-        if defibrillator_data:
-            results['defibrillator_serial'] = {
-                'rvd': rvd.get('Numéro de série DEFIBRILLATEUR', 'N/A'),
-                'image': defibrillator_data.get('serial', 'N/A'),
-                'match': normalize_serial(rvd.get('Numéro de série DEFIBRILLATEUR', '')) ==
-                        normalize_serial(defibrillator_data.get('serial', ''))
+
+        # Compare pediatric electrodes data
+        if rvd.get("Changement électrodes pédiatriques") == "Oui":
+            results['pediatric_electrode_serial'] = {
+                'rvd': rvd.get(field_mapping["electrodes_pediatriques"]["serial"], 'N/A'),
+                'image': electrode_data.get('serial', 'N/A') if electrode_data else 'N/A',
+                'match': normalize_serial(rvd.get(field_mapping["electrodes_pediatriques"]["serial"], '')) ==
+                         normalize_serial(electrode_data.get('serial', '')) if electrode_data else False
             }
-            
-            rvd_date, rvd_err = parse_date(rvd.get('Date fabrication DEFIBRILLATEUR', ''))
-            img_date, img_err = parse_date(defibrillator_data.get('date', ''))
-            results['defibrillator_date'] = {
-                'rvd': rvd.get('Date fabrication DEFIBRILLATEUR', 'N/A'),
-                'image': defibrillator_data.get('date', 'N/A'),
+
+            rvd_date, rvd_err = parse_date(rvd.get(field_mapping["electrodes_pediatriques"]["date"], ''))
+            img_date, img_err = parse_date(electrode_data.get('date', '') if electrode_data else '')
+            results['pediatric_electrode_date'] = {
+                'rvd': rvd.get(field_mapping["electrodes_pediatriques"]["date"], 'N/A'),
+                'image': electrode_data.get('date', 'N/A') if electrode_data else 'N/A',
                 'match': rvd_date == img_date if not (rvd_err or img_err) else False,
                 'errors': [e for e in [rvd_err, img_err] if e]
             }
-        
+
         st.session_state.processed_data['comparisons']['rvd_vs_images'] = results
         return results
-    
+
     except KeyError as e:
         st.error(f"Clé de données manquante : {str(e)}")
         return {}

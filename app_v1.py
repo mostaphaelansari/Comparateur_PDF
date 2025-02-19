@@ -11,11 +11,10 @@ from inference_sdk import InferenceHTTPClient
 import easyocr
 from pyzbar.pyzbar import decode
 import io
+import torch
 import pdfplumber
 from typing import Dict
 import tempfile
-import time
-
 
 # Configuration
 API_URL = "https://detect.roboflow.com"
@@ -27,99 +26,16 @@ client = InferenceHTTPClient(
     api_url=API_URL,
     api_key=st.secrets["API_KEY"]
 )
-reader = easyocr.Reader(['en'], gpu=True)
+reader = easyocr.Reader(['en'], gpu=torch.cuda.is_available())
 
 st.set_page_config(page_title="Inspecteur de dispositifs médicaux", layout="wide")
 
 # Custom CSS for professional styling
 st.markdown("""
-    <style>
-        :root {
-            --primary: #006699;
-            --secondary: #4CAF50;
-            --accent: #f8f9fa;
-        }
-        
-        .main {
-            background-color: var(--accent);
-            font-family: 'Segoe UI', system-ui;
-        }
-        
-        .stButton>button {
-            background-color: var(--secondary);
-            transition: all 0.3s ease;
-            transform: scale(1);
-            border: none;
-        }
-        
-        .stButton>button:hover {
-            transform: scale(1.05);
-            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-        }
-        
-        .header {
-            background: linear-gradient(135deg, #006699 0%, #004466 100%);
-            color: white;
-            padding: 2rem 3rem;
-            border-radius: 0 0 20px 20px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-            margin-bottom: 2rem;
-        }
-        
-        .stTabs [data-baseweb="tab-list"] {
-            gap: 1rem;
-            padding: 0 2rem;
-        }
-        
-        .stTabs [data-baseweb="tab"] {
-            padding: 1rem 2rem;
-            border-radius: 8px;
-            transition: all 0.3s ease;
-        }
-        
-        .stTabs [aria-selected="true"] {
-            background-color: var(--primary) !important;
-            color: white !important;
-        }
-        
-        .card {
-            padding: 1.5rem;
-            border-radius: 12px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-            margin-bottom: 1.5rem;
-            background: white;
-            border-left: 4px solid var(--primary);
-        }
-        
-        .upload-dropzone {
-            border: 2px dashed var(--primary) !important;
-            border-radius: 12px;
-            padding: 3rem 1rem;
-            background: rgba(0,102,153,0.05);
-        }
-        
-        .file-preview {
-            border-left: 3px solid var(--secondary);
-            padding: 1rem;
-            margin: 0.5rem 0;
-            background: rgba(76,175,80,0.05);
-        }
-        
-        @keyframes pulse {
-            0% { transform: scale(1); }
-            50% { transform: scale(1.02); }
-            100% { transform: scale(1); }
-        }
-    </style>
+     
 """, unsafe_allow_html=True)
 
 
-
-# [Include all your existing functions here: fix_orientation, process_ocr, classify_image, 
-# extract_text_from_pdf, extract_rvd_data, extract_aed_g5_data, extract_aed_g3_data, 
-# extract_important_info_g3, extract_important_info_g5, extract_important_info_batterie,
-# extract_important_info_electrodes, parse_date, normalize_serial, compare_rvd_aed,
-# compare_rvd_images, display_comparison]
 # Initialisation de l'état de session
 if 'processed_data' not in st.session_state:
     st.session_state.processed_data = {
@@ -299,7 +215,7 @@ def extract_aed_g3_data(text):
     keywords = [
         "Série DSA",
         "Dernier échec de DSA",
-        "Numéro de lot",
+        "Numéro de lot ",
         "Date de mise en service",
         "Capacité initiale de la batterie 12V",
         "Capacité restante de la batterie 12V",
@@ -311,7 +227,7 @@ def extract_aed_g3_data(text):
     for i, line in enumerate(lines):
         for keyword in keywords:
             if keyword in line:
-                value = lines[i+1].strip() if i+1 < len(lines) else ""
+                value = lines[i+1].strip() if i + 1 < len(lines) else ""
                 results[keyword] = value
     return results
 
@@ -381,7 +297,7 @@ def extract_important_info_batterie(results):
 def extract_important_info_electrodes(image):
     try:
         width, height = image.size
-        crop_box = (width * 0.2, height * 0.10, width * 1, height * 1)
+        crop_box = (width * 0.2, height * 0.10, width * 1, height * 1) 
         cropped_image = image.crop(crop_box)
         
         enhancer = ImageEnhance.Contrast(cropped_image)
@@ -446,138 +362,107 @@ def compare_rvd_aed():
     try:
         results = {}
         aed_type = f'AEDG{st.session_state.dae_type[-1]}'
-        
+       
         if not st.session_state.processed_data.get('RVD'):
             st.error("Données RVD manquantes pour la comparaison")
             return {}
         if not st.session_state.processed_data.get(aed_type):
             st.error(f"Données {aed_type} manquantes pour la comparaison")
             return {}
-
         rvd = st.session_state.processed_data['RVD']
         aed = st.session_state.processed_data[aed_type]
-        
+       
         # Comparaison du numéro de série
-        aed_key = 'N° série DAE' if st.session_state.dae_type == 'G5' else 'Série DSA'
+        aed_key = 'N° série DAE ' if st.session_state.dae_type == 'G5' else 'Série DSA'
         results['serial'] = {
             'rvd': rvd.get('Numéro de série DEFIBRILLATEUR', 'N/A'),
             'aed': aed.get(aed_key, 'N/A'),
-            'match': normalize_serial(rvd.get('Numéro de série DEFIBRILLATEUR', '')) == 
+            'match': normalize_serial(rvd.get('Numéro de série DEFIBRILLATEUR', '')) ==
                     normalize_serial(aed.get(aed_key, ''))
         }
         
-        # Comparaison des dates
+        # Comparaison des dates de rapport/vérification
         rvd_date, rvd_err = parse_date(rvd.get('Date-Heure rapport vérification défibrillateur', ''))
         aed_date_key = 'Date / Heure:' if st.session_state.dae_type == 'G5' else 'Date de mise en service'
         aed_date, aed_err = parse_date(aed.get(aed_date_key, ''))
-        results['date'] = {
+        results['report_date'] = {
             'rvd': rvd.get('Date-Heure rapport vérification défibrillateur', 'N/A'),
             'aed': aed.get(aed_date_key, 'N/A'),
             'match': rvd_date == aed_date if not (rvd_err or aed_err) else False,
             'errors': [e for e in [rvd_err, aed_err] if e]
         }
         
+        # Comparaison des dates de mise en service
+        # rvd_install_date, rvd_install_err = parse_date(rvd.get('Date mise en service', ''))
+        # aed_install_key = "Date d'installation :" if st.session_state.dae_type == 'G5' else 'Date de mise en service'
+        # aed_install_date, aed_install_err = parse_date(aed.get(aed_install_key, ''))
+        # results['install_date'] = {
+        #     'rvd': rvd.get('Date mise en service', 'N/A'),
+        #     'aed': aed.get(aed_install_key, 'N/A'),
+        #     'match': rvd_install_date == aed_install_date if not (rvd_install_err or aed_install_err) else False,
+        #     'errors': [e for e in [rvd_install_err, aed_install_err] if e]
+        # }
+        
+        # Comparaison des dates de mise en service de la batterie
+        rvd_batt_date, rvd_batt_err = parse_date(rvd.get('Date mise en service BATTERIE', ''))
+        # Pour G5, on utilise "Date d'installation :" comme approximation s'il n'y a pas de date spécifique pour la batterie
+        aed_batt_key = "Date d'installation :" if st.session_state.dae_type == 'G5' else 'Date de mise en service batterie'
+        aed_batt_date, aed_batt_err = parse_date(aed.get(aed_batt_key, ''))
+        results['battery_install_date'] = {
+            'rvd': rvd.get('Date mise en service BATTERIE', 'N/A'), 
+            'aed': aed.get(aed_batt_key, 'N/A'),
+            'match': rvd_batt_date == aed_batt_date if not (rvd_batt_err or aed_batt_err) else False,
+            'errors': [e for e in [rvd_batt_err, aed_batt_err] if e]
+        }
+       
         # Comparaison de la batterie
         try:
             rvd_batt = float(rvd.get('Niveau de charge de la batterie en %', 0))
             aed_batt_text = aed.get('Capacité restante de la batterie', '0') if st.session_state.dae_type == 'G5' \
                         else aed.get('Capacité restante de la batterie 12V', '0')
             aed_batt = float(re.search(r'\d+', aed_batt_text).group())
-            results['battery'] = {
+            results['battery_level'] = {
                 'rvd': f"{rvd_batt}%",
                 'aed': f"{aed_batt}%",
-                'match': abs(rvd_batt - aed_batt) <= 2
+                'match': abs(rvd_batt - aed_batt) <= 5
             }
         except Exception as e:
-            results['battery'] = {
-                'error': f"Données de batterie invalides : {str(e)}",
-                'match': False
+            st.error(f"Erreur lors de la comparaison de la batterie : {str(e)}")
+            results['battery_level'] = {
+                'rvd': rvd.get('Niveau de charge de la batterie en %', 'N/A'),
+                'aed': aed.get('Capacité restante de la batterie', 'N/A') if st.session_state.dae_type == 'G5' \
+                       else aed.get('Capacité restante de la batterie 12V', 'N/A'),
+                'match': False,
+                'error': str(e)
             }
-        
-        st.session_state.processed_data['comparisons']['rvd_vs_aed'] = results
+
         return results
-    
-    except KeyError as e:
-        st.error(f"Clé de données manquante : {str(e)}")
-        return {}
+
     except Exception as e:
-        st.error(f"Erreur de comparaison : {str(e)}")
+        st.error(f"Erreur lors de la comparaison RVD vs AED : {str(e)}")
         return {}
 
-def compare_rvd_images():
-    try:
-        results = {}
-        if not st.session_state.processed_data.get('RVD'):
-            st.error("Données RVD manquantes pour la comparaison")
-            return {}
-            
-        rvd = st.session_state.processed_data['RVD']
-        images = st.session_state.processed_data['images']
-        
-        # Comparaison de la batterie
-        battery_data = next((i for i in images if i['type'] == 'Batterie'), None)
-        if battery_data:
-            results['battery_serial'] = {
-                'rvd': rvd.get('N° série nouvelle batterie', 'N/A'),
-                'image': battery_data.get('serial', 'N/A'),
-                'match': normalize_serial(rvd.get('N° série nouvelle batterie', '')) == 
-                        normalize_serial(battery_data.get('serial', ''))
-            }
-            
-            rvd_date, rvd_err = parse_date(rvd.get('Date fabrication nouvelle batterie', ''))
-            img_date, img_err = parse_date(battery_data.get('date', ''))
-            results['battery_date'] = {
-                'rvd': rvd.get('Date fabrication nouvelle batterie', 'N/A'),
-                'image': battery_data.get('date', 'N/A'),
-                'match': rvd_date == img_date if not (rvd_err or img_err) else False,
-                'errors': [e for e in [rvd_err, img_err] if e]
-            }
-        
-        # Comparaison des électrodes
-        electrode_data = next((i for i in images if i['type'] == 'Electrodes'), None)
-        if electrode_data:
-            results['electrode_serial'] = {
-                'rvd': rvd.get('N° série nouvelles électrodes', 'N/A'),
-                'image': electrode_data.get('serial', 'N/A'),
-                'match': normalize_serial(rvd.get('N° série nouvelles électrodes', '')) == 
-                        normalize_serial(electrode_data.get('serial', ''))
-            }
-            
-            rvd_date, rvd_err = parse_date(rvd.get('Date péremption des nouvelles éléctrodes', ''))
-            img_date, img_err = parse_date(electrode_data.get('date', ''))
-            results['electrode_date'] = {
-                'rvd': rvd.get('Date péremption des nouvelles éléctrodes', 'N/A'),
-                'image': electrode_data.get('date', 'N/A'),
-                'match': rvd_date == img_date if not (rvd_err or img_err) else False,
-                'errors': [e for e in [rvd_err, img_err] if e]
-            }
-        
-        st.session_state.processed_data['comparisons']['rvd_vs_images'] = results
-        return results
-    
-    except KeyError as e:
-        st.error(f"Clé de données manquante : {str(e)}")
-        return {}
-    except Exception as e:
-        st.error(f"Erreur de comparaison : {str(e)}")
-        return {}
+def display_comparison(title, comparison_results):
+    st.markdown(f"<h3>{title}</h3>", unsafe_allow_html=True)
+    for key, result in comparison_results.items():
+        rvd_value = result.get('rvd', 'N/A')
+        aed_value = result.get('aed', 'N/A')
+        match_status = "✅ Correspond" if result.get('match', False) else "❌ Ne correspond pas"
+        errors = result.get('errors', [])
+        error_message = f"Erreurs : {', '.join(errors)}" if errors else ""
+
+        st.markdown(f"""
+            **{key.capitalize()}**  
+            - RVD : {rvd_value}  
+            - AED : {aed_value}  
+            - Statut : {match_status}  
+            - {error_message}
+        """, unsafe_allow_html=True)
 
 def main():
-    # 
-    
-    # Enhanced Header Section
-    with st.container():
-        st.markdown("""
-            <div class="header">
-                <div style="display: flex; align-items: center; gap: 2rem;">
-                    <img src="https://www.locacoeur.com/wp-content/uploads/2020/04/Locacoeur_Logo.png" width="120">
-                    <div>
-                        <h1 style="margin: 0; font-size: 2.5rem;">Système d'inspection des dispositifs médicaux</h1>
-                        <p style="opacity: 0.9; margin: 0.5rem 0 0;">v2.1.0 | Plateforme d'analyse intelligente</p>
-                    </div>
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
+    # Section d'en-tête
+    st.title("Système d'inspection des dispositifs médicaux")
+    st.markdown("---")
     
     # Enhanced Sidebar with status indicators
     with st.sidebar:
@@ -630,180 +515,187 @@ def main():
         
         st.markdown("---")
         st.caption("Développé par Locacoeur • [Support technique](mailto:support@locacoeur.com)")
-    
+
     # Main Content Tabs with enhanced interaction
-    tab1, tab2, tab3 = st.tabs(["📤 Téléversement intelligent", "📊 Analyse approfondie", "🚀 Export automatisé"])
-    
+
+    tab1, tab2, tab3, tab4 = st.tabs(["📋 Téléversement des documents", "📊 Analyse approfondie", "📋vs📋 Comparaison des documents", "📤 Export automatisé"])
+   
+    # Section de téléversement des fichiers
+
     with tab1:
-        # Enhanced File Upload Section
-        with st.container():
-            st.markdown("### 📥 Zone de téléversement intelligent")
+        st.title("📋 Téléversement des documents")
+        st.markdown("---")
+    
+        with st.expander("Téléverser des documents", expanded=True):
+            uploaded_files = st.file_uploader(
+                "Glissez et déposez des fichiers ici",
+                type=ALLOWED_EXTENSIONS,
+                accept_multiple_files=True,
+                help="Téléverser des rapports PDF et des images de dispositifs"
+            )
             
-            with st.expander("**Workflow d'importation**", expanded=True):
-                uploaded_files = st.file_uploader(
-                    "Glissez et déposez vos fichiers ici",
-                    type=ALLOWED_EXTENSIONS,
-                    accept_multiple_files=True,
-                    help="Formats acceptés : PDF, JPG, PNG",
-                    key="main_uploader",
-                    label_visibility="collapsed"
-                )
-                
-                if uploaded_files:
-                    processing_container = st.container()
-                    with processing_container:
-                        progress_bar = st.progress(0)
-                        status_text = st.empty()
-                        error_container = st.empty()
-                        
-                        for i, uploaded_file in enumerate(uploaded_files):
-                            try:
-                                progress = (i + 1) / len(uploaded_files)
-                                progress_bar.progress(progress)
-                                status_text.markdown(f"""
-                                    <div style="padding: 1rem; background: rgba(0,102,153,0.05); border-radius: 8px;">
-                                        🔍 Analyse du fichier {i+1}/{len(uploaded_files)} : 
-                                        <strong>{uploaded_file.name}</strong>
-                                    </div>
-                                """, unsafe_allow_html=True)
+            if uploaded_files:
+                processing_container = st.container()
+                with processing_container:
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    error_container = st.empty()
+                    
+                    total_files = len(uploaded_files)
+                    
+                    for i, uploaded_file in enumerate(uploaded_files):
+                        try:
+                            # Update progress bar and status text
+                            progress = (i + 1) / total_files
+                            progress_bar.progress(progress)
+                            status_text.markdown(f"""
+                                 
+                                    🔍 Analyse du fichier {i+1}/{total_files} : 
+                                     {uploaded_file.name}   
+                            """, unsafe_allow_html=True)
+                            
+                            # Process PDF files
+                            if uploaded_file.type == "application/pdf":
+                                text = extract_text_from_pdf(uploaded_file)
                                 
-                                # File processing logic...
-                                if uploaded_file.type == "application/pdf":
-                                    text = extract_text_from_pdf(uploaded_file)
-                                    if 'rapport de vérification' in uploaded_file.name.lower():
-                                        st.session_state.processed_data['RVD'] = extract_rvd_data(text)
-                                    elif 'aed' in uploaded_file.name.lower():
-                                        key = 'AEDG5' if st.session_state.dae_type == "G5" else 'AEDG3'
-                                        st.session_state.processed_data[key] = extract_aed_data(text, st.session_state.dae_type)
-                                        
-                                    st.toast(f"✅ PDF analysé : {uploaded_file.name}", icon="✅")
+                                if 'rapport de vérification' in uploaded_file.name.lower():
+                                    st.session_state.processed_data['RVD'] = extract_rvd_data(text)
+                                    st.success(f"RVD traité : {uploaded_file.name}")
+                                elif 'aed' in uploaded_file.name.lower():
+                                    if st.session_state.dae_type == "G5":
+                                        st.session_state.processed_data['AEDG5'] = extract_aed_g5_data(text)
+                                    else:
+                                        st.session_state.processed_data['AEDG3'] = extract_aed_g3_data(text)
+                                    st.success(f"Rapport AED {st.session_state.dae_type} traité : {uploaded_file.name}")
                                 else:
-                                    image = Image.open(uploaded_file)
-                                    result = classify_image(uploaded_file)
-                                    detected_classes = [pred['class'] for pred in result.get('predictions', []) if pred['confidence'] > 0.5]
+                                    st.warning(f"Type de PDF non reconnu : {uploaded_file.name}")
+                             
+                            # Process image files
+                            else:
+                                image = Image.open(uploaded_file)
+                                image = fix_orientation(image)
+                                image = image.convert('RGB')
+                                
+                                with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as temp_file:
+                                    image.save(temp_file, format='JPEG')
+                                    temp_file_path = temp_file.name
+                                
+                                try:
+                                    result = classify_image(temp_file_path)
+                                    detected_classes = [pred['class'] for pred in result.get('predictions', []) 
+                                                    if pred['confidence'] > 0.5]
+                                    
                                     if detected_classes:
                                         img_data = {
                                             'type': detected_classes[0],
                                             'serial': None,
-                                            'date': None,
+                                            'date': None, 
                                             'image': image
                                         }
+                                        
+                                        if "Defibrillateur" in detected_classes[0]:
+                                            results = process_ocr(image)
+                                            if "G3" in detected_classes[0]:
+                                                img_data['serial'], img_data['date'] = extract_important_info_g3(results)
+                                            else:
+                                                img_data['serial'], img_data['date'] = extract_important_info_g5(results)
+                                        
+                                        elif "Batterie" in detected_classes[0]:
+                                            results = process_ocr(image)
+                                            img_data['serial'], img_data['date'] = extract_important_info_batterie(results)
+                                        
+                                        elif "Electrodes" in detected_classes[0]:
+                                            img_data['serial'], img_data['date'] = extract_important_info_electrodes(image)
+                                         
                                         st.session_state.processed_data['images'].append(img_data)
-                                        st.toast(f"📸 Image analysée : {uploaded_file.name}", icon="📸")
+                                        st.success(f"Image {detected_classes[0]} traitée : {uploaded_file.name}")
+                                    
+                                    else:
+                                        st.warning(f"Aucune classification trouvée pour : {uploaded_file.name}")
+                                    
+                                except Exception as e:
+                                    st.error(f"Erreur lors de la classification de l'image {uploaded_file.name} : {str(e)}")
                                 
-                                # Add slight delay for smooth animation
-                                time.sleep(0.3)
-                            
-                            except Exception as e:
-                                if 'processing_errors' not in st.session_state:
-                                    st.session_state.processing_errors = []
-                                st.session_state.processing_errors.append({
-                                    'file': uploaded_file.name,
-                                    'error': str(e)
-                                })
-                                error_container.error(f"""
-                                    ❌ Erreur lors du traitement de {uploaded_file.name} :
-                                    ```{str(e)}```
-                                """)
+                                finally:
+                                    # Ensure temp file is always cleaned up
+                                    if os.path.exists(temp_file_path):
+                                        os.unlink(temp_file_path)
                         
-                        progress_bar.empty()
-                        status_text.success("✅ Traitement terminé avec succès !")
-                        
-                        # Show processed files preview
-                        st.markdown("### 📂 Fichiers traités")
-                        for file in uploaded_files:
-                            st.markdown(f"""
-                                <div class="file-preview">
-                                    📄 {file.name} - {file.size//1024} KB
-                                    {'✅' if file.name not in [e['file'] for e in st.session_state.get('processing_errors', [])] else '❌'}
-                                </div>
-                            """, unsafe_allow_html=True)
+                        except Exception as e:
+                            error_container.error(f"Erreur lors du traitement de {uploaded_file.name} : {str(e)}")
+                            continue  # Continue processing other files even if one fails
+                    
+                    # Final success message after processing all files
+                    if i == total_files - 1:
+                        st.success(f"Traitement terminé pour tous les {total_files} fichiers.")
     
     with tab2:
-        # Enhanced Results Display
-        st.markdown("### 📊 Tableau de bord analytique")
-        
-        # Real-time Data Summary
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            with st.container():
-                st.markdown(f"""
-                    <div class="card">
-                        <div style="display: flex; align-items: center; gap: 1rem;">
-                            <div style="font-size: 2rem;">📂</div>
-                            <div>
-                                <h3 style="margin: 0;">Documents</h3>
-                                <h1 style="margin: 0; color: var(--primary);">{len(uploaded_files)}</h1>
-                            </div>
-                        </div>
-                    </div>
-                """, unsafe_allow_html=True)
-        
-        # Interactive Data Explorer
-        with st.expander("🔍 Explorateur de données interactif", expanded=True):
-            tab_rvd, tab_aed, tab_img = st.tabs(["RVD", "AED", "Images"])
+        st.title("📊 Analyse de données traitées")
+        # Affichage des données traitées
+        with st.expander("Données traitées", expanded=True):
+            col1, col2 = st.columns(2)
             
-            with tab_rvd:
-                if st.session_state.processed_data['RVD']:
-                    rvd_data = st.session_state.processed_data['RVD']
-                    cols = st.columns(3)
-                    cols[0].metric("Code site", rvd_data.get('Code site', 'N/A'))
-                    cols[1].metric("Date inspection", rvd_data.get('Date', 'N/A'))
-                    cols[2].metric("Statut", rvd_data.get('Statut', 'N/A'), 
-                                  delta_color="off" if rvd_data.get('Statut') == "Valide" else "inverse")
-                else:
-                    st.markdown("""
-                        <div style="padding: 2rem; text-align: center; opacity: 0.5;">
-                            🕳️ Aucune donnée RVD disponible
-                        </div>
-                    """, unsafe_allow_html=True)
+            with col1:
+                st.subheader("Données RVD")
+                st.json(st.session_state.processed_data['RVD'], expanded=False)
             
-            with tab_aed:
+            with col2:
+                st.subheader(f"Données AED {st.session_state.dae_type}")
                 aed_type = f'AEDG{st.session_state.dae_type[-1]}'
                 aed_data = st.session_state.processed_data.get(aed_type, {})
-                if aed_data:
-                    cols = st.columns([2,1,1])
-                    cols[0].metric("Modèle", aed_data.get('Modèle', 'N/A'))
-                    cols[1].metric("Série", aed_data.get('Série', 'N/A'))
-                    cols[2].metric("Maintenance", aed_data.get('Maintenance', 'N/A'))
-                else:
-                    st.markdown("""
-                        <div style="padding: 2rem; text-align: center; opacity: 0.5;">
-                            🚫 Aucune donnée AED détectée
-                        </div>
-                    """, unsafe_allow_html=True)
-            
-            with tab_img:
-                if st.session_state.processed_data['images']:
-                    grid = st.columns(3)
-                    for idx, img_data in enumerate(st.session_state.processed_data['images']):
-                        with grid[idx % 3]:
-                            with st.container():
-                                st.markdown(f"""
-                                    <div class="card" style="animation: pulse 2s infinite;">
-                                        <div style="position: relative;">
-                                            {img_data['image'].to_html()}
-                                            <div style="position: absolute; bottom: 0; background: rgba(0,0,0,0.5); color: white; width: 100%; padding: 0.5rem;">
-                                                {img_data['type']}
-                                            </div>
-                                        </div>
-                                        <div style="margin-top: 1rem;">
-                                            <div>🔢 Série: {img_data.get('serial', 'N/A')}</div>
-                                            <div>📅 Date: {img_data.get('date', 'N/A')}</div>
-                                        </div>
-                                    </div>
-                                """, unsafe_allow_html=True)
-                else:
-                    st.markdown("""
-                        <div style="padding: 2rem; text-align: center; opacity: 0.5;">
-                            🖼️ Aucune image analysée
-                        </div>
-                    """, unsafe_allow_html=True)
-    
-    with tab3:
-        # Smart Export System
-        st.markdown("### 🚀 Centre d'exportation intelligent")
+                st.json(aed_data if aed_data else {"status": "Aucune donnée AED trouvée"}, expanded=False) 
         
+        # Affichage des résultats d'analyse d'images
+        if st.session_state.processed_data['images']:
+            with st.expander("Résultats d'analyse d'images", expanded=True):
+                cols = st.columns(3)
+                for idx, img_data in enumerate(st.session_state.processed_data['images']):
+                    with cols[idx % 3]:
+                        st.image(img_data['image'], use_container_width=True)
+                        st.markdown(f"""
+                        **Type:** {img_data['type']}  
+                        **Numéro de série:** {img_data.get('serial', 'N/A')}  
+                        **Date:** {img_data.get('date', 'N/A')}
+                        """)
+
+    with tab3:
+        st.title("📋v📑 Comparaison des documents")
+        # Section de comparaison améliorée
+        with st.expander("Comparaison des documents", expanded=True):
+            st.markdown("""
+                         
+                    """, unsafe_allow_html=True)
+
+            # Bouton Streamlit 
+            if st.button("Lancer l'analyse complète"):
+                try:
+                    aed_results = compare_rvd_aed()
+                    image_results = compare_rvd_images()
+                    
+                    display_comparison("Comparaison RVD vs Rapport AED", aed_results)
+                    display_comparison("Comparaison RVD vs Données d'images", image_results)
+                    
+                    all_matches = all(
+                        item.get('match', False)
+                        for comp in [aed_results, image_results] 
+                        for item in comp.values() 
+                    )
+                    
+                    if all_matches:
+                        st.success("Tous les contrôles sont réussis ! Le dispositif est conforme.")
+                    else:
+                        failed = [
+                            k for comp in [aed_results, image_results] 
+                            for k, v in comp.items() 
+                            if not v.get('match', True)
+                        ]
+                        st.error(f"Échec de validation pour : {', '.join(failed)}")
+                
+                except Exception as e:
+                    st.error(f"Échec de l'analyse : {str(e)}")
+
+    with tab4:
+        st.title("📤 Export automatisé")
         with st.container():
             col_config, col_preview = st.columns([1, 2])
             
@@ -814,29 +706,69 @@ def main():
                     include_images = st.checkbox("Inclure les images", True)
                     watermark = st.checkbox("Ajouter un filigrane", True)
                     st.markdown("---")
-                    if st.form_submit_button("⚡ Générer l'export"):
-                        # Export generation logic...
-                        with st.spinner("🛠️ Construction du package d'export..."):
-                            time.sleep(2)  # Simulate processing
-                            st.session_state.export_ready = True
+                    
+                    # Section de gestion des fichiers
+                    with st.expander("Exportation des fichiers", expanded=True):
+                        if st.form_submit_button("Générer un package d'export"):
+                            if not st.session_state.get('processed_data', {}).get('RVD'):
+                                st.warning("Aucune donnée RVD disponible pour le nommage")
+                                return
+                             
+                            code_site = st.session_state.processed_data['RVD'].get('Code site', 'INCONNU')
+                            date_str = datetime.now().strftime("%Y%m%d")
+                            
+                            try:
+                                with zipfile.ZipFile('export.zip', 'w') as zipf:
+                                    with zipf.open('processed_data.json', 'w') as f:
+                                        f.write(json.dumps(st.session_state.processed_data, indent=2).encode())
+                                     
+                                    if 'uploaded_files' in st.session_state:
+                                        for uploaded_file in st.session_state.uploaded_files:
+                                            original_bytes = uploaded_file.getvalue()
+                                            
+                                            if uploaded_file.type == "application/pdf":
+                                                if 'rapport de vérification' in uploaded_file.name.lower():
+                                                     new_name = f"RVD_{code_site}_{date_str}.pdf"
+                                                else:
+                                                     new_name = f"AED_{st.session_state.get('dae_type', 'UNKNOWN')}_{code_site}_{date_str}.pdf"
+                                            else:
+                                                 new_name = f"IMAGE_{code_site}_{date_str}_{uploaded_file.name}"
+                                            
+                                            zipf.writestr(new_name, original_bytes)
+                                
+                                    st.session_state.export_ready = True
+                                
+                                    if os.path.exists('export.zip'):
+                                        with open("export.zip", "rb") as f:
+                                             st.download_button(
+                                                label="Télécharger le package d'export",
+                                                data=f,
+                                                file_name=f"Inspection_{code_site}_{date_str}.zip",
+                                                mime="application/zip"
+                                             )
+                            
+                            except Exception as e:
+                                st.error(f"Erreur lors de la création du package d'export : {str(e)}")
             
             with col_preview:
                 st.markdown("#### 👁️ Aperçu de l'export")
-                if 'export_ready' in st.session_state and st.session_state.export_ready:
+                if st.session_state.get('export_ready'):
                     st.success("✅ Package prêt pour téléchargement !")
-                    st.json({
+                    
+                    preview_data = {
                         "format": export_format,
                         "fichiers_inclus": [
                             "rapport_principal.pdf",
                             "donnees_techniques.csv",
-                            *(["images.zip"] if include_images else [])
+                             *(["images.zip"] if include_images else [])
                         ],
-                        "taille_estimee": f"{(len(uploaded_files)*0.5):.1f} MB"
-                    })
+                        "taille_estimee": f"{(len(st.session_state.get('uploaded_files', []))*0.5):.1f} MB"
+                    }
+                    st.json(preview_data)
                     
                     if os.path.exists('export.zip'):
                         with open("export.zip", "rb") as f:
-                            btn = st.download_button(
+                            if st.download_button(
                                 label="📥 Télécharger l'export complet",
                                 data=f,
                                 file_name=f"Inspection_{datetime.now().strftime('%Y%m%d')}.zip",
@@ -844,15 +776,17 @@ def main():
                                 help="Cliquez pour télécharger le package complet",
                                 use_container_width=True,
                                 type="primary"
-                            )
-                            if btn:
+                             ):
                                 st.balloons()
                 else:
-                    st.markdown("""
-                        <div style="padding: 2rem; text-align: center; opacity: 0.5;">
+                    st.markdown(
+                        """
+                         
                             ⚠️ Aucun export généré
-                        </div>
-                    """, unsafe_allow_html=True)
+                         
+                        """,
+                        unsafe_allow_html=True
+                    )
 
 if __name__ == "__main__":
     main()
