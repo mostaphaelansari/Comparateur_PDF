@@ -27,91 +27,6 @@ client = InferenceHTTPClient(
 )
 reader = easyocr.Reader(['en'], gpu=True)
 
-st.set_page_config(page_title="Inspecteur de dispositifs médicaux", layout="wide")
-
-# Custom CSS for professional styling
-st.markdown("""
-    <style>
-        :root {
-            --primary: #006699;
-            --secondary: #4CAF50;
-            --accent: #f8f9fa;
-        }
-        
-        .main {
-            background-color: var(--accent);
-            font-family: 'Segoe UI', system-ui;
-        }
-        
-        .stButton>button {
-            background-color: var(--secondary);
-            transition: all 0.3s ease;
-            transform: scale(1);
-            border: none;
-        }
-        
-        .stButton>button:hover {
-            transform: scale(1.05);
-            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-        }
-        
-        .header {
-            background: linear-gradient(135deg, #006699 0%, #004466 100%);
-            color: white;
-            padding: 2rem 3rem;
-            border-radius: 0 0 20px 20px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-            margin-bottom: 2rem;
-        }
-        
-        .stTabs [data-baseweb="tab-list"] {
-            gap: 1rem;
-            padding: 0 2rem;
-        }
-        
-        .stTabs [data-baseweb="tab"] {
-            padding: 1rem 2rem;
-            border-radius: 8px;
-            transition: all 0.3s ease;
-        }
-        
-        .stTabs [aria-selected="true"] {
-            background-color: var(--primary) !important;
-            color: white !important;
-        }
-        
-        .card {
-            padding: 1.5rem;
-            border-radius: 12px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-            margin-bottom: 1.5rem;
-            background: white;
-            border-left: 4px solid var(--primary);
-        }
-        
-        .upload-dropzone {
-            border: 2px dashed var(--primary) !important;
-            border-radius: 12px;
-            padding: 3rem 1rem;
-            background: rgba(0,102,153,0.05);
-        }
-        
-        .file-preview {
-            border-left: 3px solid var(--secondary);
-            padding: 1rem;
-            margin: 0.5rem 0;
-            background: rgba(76,175,80,0.05);
-        }
-        
-        @keyframes pulse {
-            0% { transform: scale(1); }
-            50% { transform: scale(1.02); }
-            100% { transform: scale(1); }
-        }
-    </style>
-""", unsafe_allow_html=True)
-
-
 # Initialisation de l'état de session
 if 'processed_data' not in st.session_state:
     st.session_state.processed_data = {
@@ -586,246 +501,181 @@ def display_comparison(title, comparison):
         st.markdown("---")
 
 def main():
-    # 
-    
-    # Enhanced Header Section
-    with st.container():
-        st.markdown("""
-            <div class="header">
-                <div style="display: flex; align-items: center; gap: 2rem;">
-                    <img src="https://www.locacoeur.com/wp-content/uploads/2020/04/Locacoeur_Logo.png" width="120">
-                    <div>
-                        <h1 style="margin: 0; font-size: 2.5rem;">Système d'inspection des dispositifs médicaux</h1>
-                        <p style="opacity: 0.9; margin: 0.5rem 0 0;">v2.1.0 | Plateforme d'analyse intelligente</p>
-                    </div>
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
-    
+    st.set_page_config(page_title="Inspecteur de dispositifs médicaux", layout="wide")
     
     # Section d'en-tête
     st.title("Système d'inspection des dispositifs médicaux")
     st.markdown("---")
     
-     # Enhanced Sidebar with status indicators
+    # Barre latérale de configuration
     with st.sidebar:
-        st.markdown("### ⚙️ Paramètres de configuration")
+        st.header("Configuration")
+        st.session_state.dae_type = st.radio("Type d'AED", ("G5", "G3"), index=0)
+        st.session_state.enable_ocr = st.checkbox("Activer le traitement OCR", True)
         st.markdown("---")
-        
-        # Device Configuration
-        st.subheader("📱 Configuration du dispositif")
-        st.session_state.dae_type = st.radio(
-            "Type d'AED",
-            ("G5", "G3"),
-            index=0,
-            help="Sélectionnez le type de dispositif à inspecter"
-        )
-        
-        # Processing Options
-        st.subheader("🔧 Options de traitement")
-        st.session_state.enable_ocr = st.checkbox(
-            "Activer l'OCR",
-            True,
-            help="Active la reconnaissance de texte sur les images"
-        )
-        st.session_state.auto_classify = st.checkbox(
-            "Classification automatique",
-            True,
-            help="Active la classification automatique des documents"
-        )
-        
-        # Help Section
-        st.markdown("---")
-        st.markdown("#### 🔍 Guide d'utilisation")
-        with st.expander("Comment utiliser l'application ?", expanded=False):
-            st.markdown("""
-                1. **Préparation** 📋
-                   - Vérifiez que vos documents sont au format requis
-                   - Assurez-vous que les images sont nettes
-                
-                2. **Téléversement** 📤
-                   - Glissez-déposez vos fichiers
-                   - Attendez le traitement complet
-                
-                3. **Vérification** ✅
-                   - Examinez les données extraites
-                   - Validez les résultats
-                
-                4. **Export** 📥
-                   - Choisissez le format d'export
-                   - Téléchargez vos résultats
-            """)
-        
-        st.markdown("---")
-        st.caption("Développé par Locacoeur • [Support technique](mailto:support@locacoeur.com)")
-    # Main Content Tabs with enhanced interaction
-    tab1, tab2, tab3 = st.tabs(["📋 Téléversement des documents", "📊 Analyse approfondie", "📤 Export automatisé"])
+        st.write("Développé par Locacoeur")
+    
     # Section de téléversement des fichiers
-    with tab1:
-        st.title("📋 Téléversement des documents")
-        st.markdown("---")
-        with st.expander("Téléverser des documents", expanded=True):
-            uploaded_files = st.file_uploader(
-                "Glissez et déposez des fichiers ici",
-                type=ALLOWED_EXTENSIONS,
-                accept_multiple_files=True,
-                help="Téléverser des rapports PDF et des images de dispositifs"
-            )
-            if uploaded_files:
-                for uploaded_file in uploaded_files:
-                    if uploaded_file.type == "application/pdf":
-                        text = extract_text_from_pdf(uploaded_file)
-                        if 'rapport de vérification' in uploaded_file.name.lower():
-                            st.session_state.processed_data['RVD'] = extract_rvd_data(text)
-                            st.success(f"RVD traité : {uploaded_file.name}")
-                        elif 'aed' in uploaded_file.name.lower():
-                            if st.session_state.dae_type == "G5":
-                                st.session_state.processed_data['AEDG5'] = extract_aed_g5_data(text)
-                            else:
-                                st.session_state.processed_data['AEDG3'] = extract_aed_g3_data(text)
-                            st.success(f"Rapport AED {st.session_state.dae_type} traité : {uploaded_file.name}")
-                    
-                    else:
-                        try:
-                            image = Image.open(uploaded_file)
-                            image = fix_orientation(image)
-                            image = image.convert('RGB')
-                            
-                            with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as temp_file:
-                                image.save(temp_file, format='JPEG')
-                                temp_file_path = temp_file.name
-                            
-                            result = classify_image(temp_file_path)
-                            detected_classes = [pred['class'] for pred in result.get('predictions', []) if pred['confidence'] > 0.5]
-                            
-                            if detected_classes:
-                                img_data = {
-                                    'type': detected_classes[0],
-                                    'serial': None,
-                                    'date': None,
-                                    'image': image
-                                }
-                                
-                                if "Defibrillateur" in detected_classes[0]:
-                                    results = process_ocr(image)
-                                    if "G3" in detected_classes[0]:
-                                        img_data['serial'], img_data['date'] = extract_important_info_g3(results)
-                                    else:
-                                        img_data['serial'], img_data['date'] = extract_important_info_g5(results)
-                                
-                                elif "Batterie" in detected_classes[0]:
-                                    results = process_ocr(image)
-                                    img_data['serial'], img_data['date'] = extract_important_info_batterie(results)
-                                
-                                elif "Electrodes" in detected_classes[0]:
-                                    img_data['serial'], img_data['date'] = extract_important_info_electrodes(image)
-                                
-                                st.session_state.processed_data['images'].append(img_data)
-                                st.success(f"Image {detected_classes[0]} traitée : {uploaded_file.name}")
-                            
-                            else:
-                                st.warning(f"Aucune classification trouvée pour : {uploaded_file.name}")
-                            os.unlink(temp_file_path)
+    with st.expander("Téléverser des documents", expanded=True):
+        uploaded_files = st.file_uploader(
+            "Glissez et déposez des fichiers ici",
+            type=ALLOWED_EXTENSIONS,
+            accept_multiple_files=True,
+            help="Téléverser des rapports PDF et des images de dispositifs"
+        )
+        if uploaded_files:
+            for uploaded_file in uploaded_files:
+                if uploaded_file.type == "application/pdf":
+                    text = extract_text_from_pdf(uploaded_file)
+                    if 'rapport de vérification' in uploaded_file.name.lower():
+                        st.session_state.processed_data['RVD'] = extract_rvd_data(text)
+                        st.success(f"RVD traité : {uploaded_file.name}")
+                    elif 'aed' in uploaded_file.name.lower():
+                        if st.session_state.dae_type == "G5":
+                            st.session_state.processed_data['AEDG5'] = extract_aed_g5_data(text)
+                        else:
+                            st.session_state.processed_data['AEDG3'] = extract_aed_g3_data(text)
+                        st.success(f"Rapport AED {st.session_state.dae_type} traité : {uploaded_file.name}")
+                
+                else:
+                    try:
+                        image = Image.open(uploaded_file)
+                        image = fix_orientation(image)
+                        image = image.convert('RGB')
                         
-                        except Exception as e:
-                            st.error(f"Erreur lors du traitement de {uploaded_file.name} : {str(e)}")
-    with tab2:
-        st.title("📊 Analyse de données traitées")
-        # Affichage des données traitées
-        with st.expander("Données traitées", expanded=True):
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.subheader("Données RVD")
-                st.json(st.session_state.processed_data['RVD'], expanded=False)
-            
-            with col2:
-                st.subheader(f"Données AED {st.session_state.dae_type}")
-                aed_type = f'AEDG{st.session_state.dae_type[-1]}'
-                aed_data = st.session_state.processed_data.get(aed_type, {})
-                st.json(aed_data if aed_data else {"status": "Aucune donnée AED trouvée"}, expanded=False)
-        
-        # Affichage des résultats d'analyse d'images
-        if st.session_state.processed_data['images']:
-            with st.expander("Résultats d'analyse d'images", expanded=True):
-                cols = st.columns(3)
-                for idx, img_data in enumerate(st.session_state.processed_data['images']):
-                    with cols[idx % 3]:
-                        st.image(img_data['image'], use_container_width=True)
-                        st.markdown(f"""
-                        **Type:** {img_data['type']}  
-                        **Numéro de série:** {img_data.get('serial', 'N/A')}  
-                        **Date:** {img_data.get('date', 'N/A')}
-                        """)
-        
-        # Section de comparaison améliorée
-        with st.expander("Comparaison des documents", expanded=True):
-            if st.button("Lancer l'analyse complète"):
-                try:
-                    aed_results = compare_rvd_aed()
-                    image_results = compare_rvd_images()
-                    
-                    display_comparison("Comparaison RVD vs Rapport AED", aed_results)
-                    display_comparison("Comparaison RVD vs Données d'images", image_results)
-                    
-                    all_matches = all(
-                        item.get('match', False)
-                        for comp in [aed_results, image_results] 
-                        for item in comp.values() 
-                    )
-                    
-                    if all_matches:
-                        st.success("Tous les contrôles sont réussis ! Le dispositif est conforme.")
-                    else:
-                        failed = [
-                            k for comp in [aed_results, image_results] 
-                            for k, v in comp.items() 
-                            if not v.get('match', True)
-                        ]
-                        st.error(f"Échec de validation pour : {', '.join(failed)}")
-                
-                except Exception as e:
-                    st.error(f"Échec de l'analyse : {str(e)}")
-    with tab3:
-        st.title("📤 Export automatisé")
-        # Section de gestion des fichiers
-        with st.expander("Exportation des fichiers", expanded=True):
-            if st.button("Générer un package d'export"):
-                if not st.session_state.processed_data.get('RVD'):
-                    st.warning("Aucune donnée RVD disponible pour le nommage")
-                    return
-                
-                code_site = st.session_state.processed_data['RVD'].get('Code site', 'INCONNU')
-                date_str = datetime.now().strftime("%Y%m%d")
-                
-                try:
-                    with zipfile.ZipFile('export.zip', 'w') as zipf:
-                        with zipf.open('processed_data.json', 'w') as f:
-                            f.write(json.dumps(st.session_state.processed_data, indent=2).encode())
+                        with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as temp_file:
+                            image.save(temp_file, format='JPEG')
+                            temp_file_path = temp_file.name
                         
-                        for uploaded_file in uploaded_files:
-                            original_bytes = uploaded_file.getvalue()
+                        result = classify_image(temp_file_path)
+                        detected_classes = [pred['class'] for pred in result.get('predictions', []) if pred['confidence'] > 0.5]
+                        
+                        if detected_classes:
+                            img_data = {
+                                'type': detected_classes[0],
+                                'serial': None,
+                                'date': None,
+                                'image': image
+                            }
                             
-                            if uploaded_file.type == "application/pdf":
-                                if 'rapport de vérification' in uploaded_file.name.lower():
-                                    new_name = f"RVD_{code_site}_{date_str}.pdf"
+                            if "Defibrillateur" in detected_classes[0]:
+                                results = process_ocr(image)
+                                if "G3" in detected_classes[0]:
+                                    img_data['serial'], img_data['date'] = extract_important_info_g3(results)
                                 else:
-                                    new_name = f"AED_{st.session_state.dae_type}_{code_site}_{date_str}.pdf"
-                            else:
-                                new_name = f"IMAGE_{code_site}_{date_str}_{uploaded_file.name}"
+                                    img_data['serial'], img_data['date'] = extract_important_info_g5(results)
                             
-                            zipf.writestr(new_name, original_bytes)
+                            elif "Batterie" in detected_classes[0]:
+                                results = process_ocr(image)
+                                img_data['serial'], img_data['date'] = extract_important_info_batterie(results)
+                            
+                            elif "Electrodes" in detected_classes[0]:
+                                img_data['serial'], img_data['date'] = extract_important_info_electrodes(image)
+                            
+                            st.session_state.processed_data['images'].append(img_data)
+                            st.success(f"Image {detected_classes[0]} traitée : {uploaded_file.name}")
+                        
+                        else:
+                            st.warning(f"Aucune classification trouvée pour : {uploaded_file.name}")
+                        os.unlink(temp_file_path)
                     
-                    with open("export.zip", "rb") as f:
-                        st.download_button(
-                            label="Télécharger le package d'export",
-                            data=f,
-                            file_name=f"Inspection_{code_site}_{date_str}.zip",
-                            mime="application/zip"
-                        )
+                    except Exception as e:
+                        st.error(f"Erreur lors du traitement de {uploaded_file.name} : {str(e)}")
+    
+    # Affichage des données traitées
+    with st.expander("Données traitées", expanded=True):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.subheader("Données RVD")
+            st.json(st.session_state.processed_data['RVD'], expanded=False)
+        
+        with col2:
+            st.subheader(f"Données AED {st.session_state.dae_type}")
+            aed_type = f'AEDG{st.session_state.dae_type[-1]}'
+            aed_data = st.session_state.processed_data.get(aed_type, {})
+            st.json(aed_data if aed_data else {"status": "Aucune donnée AED trouvée"}, expanded=False)
+    
+    # Affichage des résultats d'analyse d'images
+    if st.session_state.processed_data['images']:
+        with st.expander("Résultats d'analyse d'images", expanded=True):
+            cols = st.columns(3)
+            for idx, img_data in enumerate(st.session_state.processed_data['images']):
+                with cols[idx % 3]:
+                    st.image(img_data['image'], use_container_width=True)
+                    st.markdown(f"""
+                    **Type:** {img_data['type']}  
+                    **Numéro de série:** {img_data.get('serial', 'N/A')}  
+                    **Date:** {img_data.get('date', 'N/A')}
+                    """)
+    
+    # Section de comparaison améliorée
+    with st.expander("Comparaison des documents", expanded=True):
+        if st.button("Lancer l'analyse complète"):
+            try:
+                aed_results = compare_rvd_aed()
+                image_results = compare_rvd_images()
                 
-                except Exception as e:
-                    st.error(f"Erreur lors de la création du package d'export : {str(e)}")
+                display_comparison("Comparaison RVD vs Rapport AED", aed_results)
+                display_comparison("Comparaison RVD vs Données d'images", image_results)
+                
+                all_matches = all(
+                    item.get('match', False)
+                    for comp in [aed_results, image_results] 
+                    for item in comp.values() 
+                )
+                
+                if all_matches:
+                    st.success("Tous les contrôles sont réussis ! Le dispositif est conforme.")
+                else:
+                    failed = [
+                        k for comp in [aed_results, image_results] 
+                        for k, v in comp.items() 
+                        if not v.get('match', True)
+                    ]
+                    st.error(f"Échec de validation pour : {', '.join(failed)}")
+            
+            except Exception as e:
+                st.error(f"Échec de l'analyse : {str(e)}")
+    
+    # Section de gestion des fichiers
+    with st.expander("Exportation des fichiers", expanded=True):
+        if st.button("Générer un package d'export"):
+            if not st.session_state.processed_data.get('RVD'):
+                st.warning("Aucune donnée RVD disponible pour le nommage")
+                return
+            
+            code_site = st.session_state.processed_data['RVD'].get('Code site', 'INCONNU')
+            date_str = datetime.now().strftime("%Y%m%d")
+            
+            try:
+                with zipfile.ZipFile('export.zip', 'w') as zipf:
+                    with zipf.open('processed_data.json', 'w') as f:
+                        f.write(json.dumps(st.session_state.processed_data, indent=2).encode())
+                    
+                    for uploaded_file in uploaded_files:
+                        original_bytes = uploaded_file.getvalue()
+                        
+                        if uploaded_file.type == "application/pdf":
+                            if 'rapport de vérification' in uploaded_file.name.lower():
+                                new_name = f"RVD_{code_site}_{date_str}.pdf"
+                            else:
+                                new_name = f"AED_{st.session_state.dae_type}_{code_site}_{date_str}.pdf"
+                        else:
+                            new_name = f"IMAGE_{code_site}_{date_str}_{uploaded_file.name}"
+                        
+                        zipf.writestr(new_name, original_bytes)
+                
+                with open("export.zip", "rb") as f:
+                    st.download_button(
+                        label="Télécharger le package d'export",
+                        data=f,
+                        file_name=f"Inspection_{code_site}_{date_str}.zip",
+                        mime="application/zip"
+                    )
+            
+            except Exception as e:
+                st.error(f"Erreur lors de la création du package d'export : {str(e)}")
 
 if __name__ == "__main__":
     main()

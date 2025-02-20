@@ -11,6 +11,7 @@ from inference_sdk import InferenceHTTPClient
 import easyocr
 from pyzbar.pyzbar import decode
 import io
+import torch
 import pdfplumber
 from typing import Dict
 import tempfile
@@ -25,7 +26,7 @@ client = InferenceHTTPClient(
     api_url=API_URL,
     api_key=st.secrets["API_KEY"]
 )
-reader = easyocr.Reader(['en'], gpu=True)
+reader = easyocr.Reader(['en'], gpu=torch.cuda.is_available())
 
 st.set_page_config(page_title="Inspecteur de dispositifs médicaux", layout="wide")
 
@@ -438,57 +439,79 @@ def compare_rvd_aed():
     try:
         results = {}
         aed_type = f'AEDG{st.session_state.dae_type[-1]}'
-        
+       
         if not st.session_state.processed_data.get('RVD'):
             st.error("Données RVD manquantes pour la comparaison")
             return {}
         if not st.session_state.processed_data.get(aed_type):
             st.error(f"Données {aed_type} manquantes pour la comparaison")
             return {}
-
         rvd = st.session_state.processed_data['RVD']
         aed = st.session_state.processed_data[aed_type]
-        
+       
         # Comparaison du numéro de série
         aed_key = 'N° série DAE' if st.session_state.dae_type == 'G5' else 'Série DSA'
         results['serial'] = {
             'rvd': rvd.get('Numéro de série DEFIBRILLATEUR', 'N/A'),
             'aed': aed.get(aed_key, 'N/A'),
-            'match': normalize_serial(rvd.get('Numéro de série DEFIBRILLATEUR', '')) == 
+            'match': normalize_serial(rvd.get('Numéro de série DEFIBRILLATEUR', '')) ==
                     normalize_serial(aed.get(aed_key, ''))
         }
-        
-        # Comparaison des dates
+       
+        # Comparaison des dates de rapport/vérification
         rvd_date, rvd_err = parse_date(rvd.get('Date-Heure rapport vérification défibrillateur', ''))
         aed_date_key = 'Date / Heure:' if st.session_state.dae_type == 'G5' else 'Date de mise en service'
         aed_date, aed_err = parse_date(aed.get(aed_date_key, ''))
-        results['date'] = {
+        results['report_date'] = {
             'rvd': rvd.get('Date-Heure rapport vérification défibrillateur', 'N/A'),
             'aed': aed.get(aed_date_key, 'N/A'),
             'match': rvd_date == aed_date if not (rvd_err or aed_err) else False,
             'errors': [e for e in [rvd_err, aed_err] if e]
         }
         
+        # Comparaison des dates de mise en service
+        # rvd_install_date, rvd_install_err = parse_date(rvd.get('Date mise en service', ''))
+        # aed_install_key = "Date d'installation :" if st.session_state.dae_type == 'G5' else 'Date de mise en service'
+        # aed_install_date, aed_install_err = parse_date(aed.get(aed_install_key, ''))
+        # results['install_date'] = {
+        #     'rvd': rvd.get('Date mise en service', 'N/A'),
+        #     'aed': aed.get(aed_install_key, 'N/A'),
+        #     'match': rvd_install_date == aed_install_date if not (rvd_install_err or aed_install_err) else False,
+        #     'errors': [e for e in [rvd_install_err, aed_install_err] if e]
+        # }
+        
+        # Comparaison des dates de mise en service de la batterie
+        rvd_batt_date, rvd_batt_err = parse_date(rvd.get('Date mise en service BATTERIE', ''))
+        # Pour G5, on utilise "Date d'installation :" comme approximation s'il n'y a pas de date spécifique pour la batterie
+        aed_batt_key = "Date d'installation :" if st.session_state.dae_type == 'G5' else 'Date de mise en service batterie'
+        aed_batt_date, aed_batt_err = parse_date(aed.get(aed_batt_key, ''))
+        results['battery_install_date'] = {
+            'rvd': rvd.get('Date mise en service BATTERIE', 'N/A'),
+            'aed': aed.get(aed_batt_key, 'N/A'),
+            'match': rvd_batt_date == aed_batt_date if not (rvd_batt_err or aed_batt_err) else False,
+            'errors': [e for e in [rvd_batt_err, aed_batt_err] if e]
+        }
+       
         # Comparaison de la batterie
         try:
             rvd_batt = float(rvd.get('Niveau de charge de la batterie en %', 0))
             aed_batt_text = aed.get('Capacité restante de la batterie', '0') if st.session_state.dae_type == 'G5' \
                         else aed.get('Capacité restante de la batterie 12V', '0')
             aed_batt = float(re.search(r'\d+', aed_batt_text).group())
-            results['battery'] = {
+            results['battery_level'] = {
                 'rvd': f"{rvd_batt}%",
                 'aed': f"{aed_batt}%",
                 'match': abs(rvd_batt - aed_batt) <= 2
             }
         except Exception as e:
-            results['battery'] = {
+            results['battery_level'] = {
                 'error': f"Données de batterie invalides : {str(e)}",
                 'match': False
             }
-        
+       
         st.session_state.processed_data['comparisons']['rvd_vs_aed'] = results
         return results
-    
+   
     except KeyError as e:
         st.error(f"Clé de données manquante : {str(e)}")
         return {}
@@ -510,16 +533,16 @@ def compare_rvd_images():
         battery_data = next((i for i in images if i['type'] == 'Batterie'), None)
         if battery_data:
             results['battery_serial'] = {
-                'rvd': rvd.get('N° série nouvelle batterie', 'N/A'),
+                'rvd': rvd.get('Numéro de série Batterie', 'N/A'),
                 'image': battery_data.get('serial', 'N/A'),
-                'match': normalize_serial(rvd.get('N° série nouvelle batterie', '')) == 
+                'match': normalize_serial(rvd.get('Numéro de série Batterie', '')) ==
                         normalize_serial(battery_data.get('serial', ''))
             }
             
-            rvd_date, rvd_err = parse_date(rvd.get('Date fabrication nouvelle batterie', ''))
+            rvd_date, rvd_err = parse_date(rvd.get('Date fabrication BATTERIE', ''))
             img_date, img_err = parse_date(battery_data.get('date', ''))
             results['battery_date'] = {
-                'rvd': rvd.get('Date fabrication nouvelle batterie', 'N/A'),
+                'rvd': rvd.get('Date fabrication BATTERIE', 'N/A'),
                 'image': battery_data.get('date', 'N/A'),
                 'match': rvd_date == img_date if not (rvd_err or img_err) else False,
                 'errors': [e for e in [rvd_err, img_err] if e]
@@ -529,17 +552,36 @@ def compare_rvd_images():
         electrode_data = next((i for i in images if i['type'] == 'Electrodes'), None)
         if electrode_data:
             results['electrode_serial'] = {
-                'rvd': rvd.get('N° série nouvelles électrodes', 'N/A'),
+                'rvd': rvd.get("Numéro de série ELECTRODES ADULTES", 'N/A'),
                 'image': electrode_data.get('serial', 'N/A'),
-                'match': normalize_serial(rvd.get('N° série nouvelles électrodes', '')) == 
+                'match': normalize_serial(rvd.get('Numéro de série ELECTRODES ADULTES', '')) ==
                         normalize_serial(electrode_data.get('serial', ''))
             }
             
-            rvd_date, rvd_err = parse_date(rvd.get('Date péremption des nouvelles éléctrodes', ''))
+            rvd_date, rvd_err = parse_date(rvd.get('Date de péremption ELECTRODES ADULTES', ''))
             img_date, img_err = parse_date(electrode_data.get('date', ''))
             results['electrode_date'] = {
-                'rvd': rvd.get('Date péremption des nouvelles éléctrodes', 'N/A'),
+                'rvd': rvd.get('Date de péremption ELECTRODES ADULTES', 'N/A'),
                 'image': electrode_data.get('date', 'N/A'),
+                'match': rvd_date == img_date if not (rvd_err or img_err) else False,
+                'errors': [e for e in [rvd_err, img_err] if e]
+            }
+        
+        # Comparaison du défibrillateur
+        defibrillator_data = next((i for i in images if i['type'] == 'Defibrillateur G5'), None)
+        if defibrillator_data:
+            results['defibrillator_serial'] = {
+                'rvd': rvd.get('Numéro de série DEFIBRILLATEUR', 'N/A'),
+                'image': defibrillator_data.get('serial', 'N/A'),
+                'match': normalize_serial(rvd.get('Numéro de série DEFIBRILLATEUR', '')) ==
+                        normalize_serial(defibrillator_data.get('serial', ''))
+            }
+            
+            rvd_date, rvd_err = parse_date(rvd.get('Date fabrication DEFIBRILLATEUR', ''))
+            img_date, img_err = parse_date(defibrillator_data.get('date', ''))
+            results['defibrillator_date'] = {
+                'rvd': rvd.get('Date fabrication DEFIBRILLATEUR', 'N/A'),
+                'image': defibrillator_data.get('date', 'N/A'),
                 'match': rvd_date == img_date if not (rvd_err or img_err) else False,
                 'errors': [e for e in [rvd_err, img_err] if e]
             }
@@ -553,6 +595,7 @@ def compare_rvd_images():
     except Exception as e:
         st.error(f"Erreur de comparaison : {str(e)}")
         return {}
+
 
 def display_comparison(title, comparison):
     if not comparison:
@@ -658,12 +701,17 @@ def main():
         
         st.markdown("---")
         st.caption("Développé par Locacoeur • [Support technique](mailto:support@locacoeur.com)")
+
     # Main Content Tabs with enhanced interaction
+
     tab1, tab2, tab3 ,tab4= st.tabs(["📋 Téléversement des documents", "📊 Analyse approfondie", "📋vs📋 Comparaison des documents", "📤 Export automatisé"])
+   
     # Section de téléversement des fichiers
+
     with tab1:
         st.title("📋 Téléversement des documents")
         st.markdown("---")
+    
         with st.expander("Téléverser des documents", expanded=True):
             uploaded_files = st.file_uploader(
                 "Glissez et déposez des fichiers ici",
@@ -671,64 +719,102 @@ def main():
                 accept_multiple_files=True,
                 help="Téléverser des rapports PDF et des images de dispositifs"
             )
+            
             if uploaded_files:
-                for uploaded_file in uploaded_files:
-                    if uploaded_file.type == "application/pdf":
-                        text = extract_text_from_pdf(uploaded_file)
-                        if 'rapport de vérification' in uploaded_file.name.lower():
-                            st.session_state.processed_data['RVD'] = extract_rvd_data(text)
-                            st.success(f"RVD traité : {uploaded_file.name}")
-                        elif 'aed' in uploaded_file.name.lower():
-                            if st.session_state.dae_type == "G5":
-                                st.session_state.processed_data['AEDG5'] = extract_aed_g5_data(text)
-                            else:
-                                st.session_state.processed_data['AEDG3'] = extract_aed_g3_data(text)
-                            st.success(f"Rapport AED {st.session_state.dae_type} traité : {uploaded_file.name}")
+                processing_container = st.container()
+                with processing_container:
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    error_container = st.empty()
                     
-                    else:
+                    total_files = len(uploaded_files)
+                    
+                    for i, uploaded_file in enumerate(uploaded_files):
                         try:
-                            image = Image.open(uploaded_file)
-                            image = fix_orientation(image)
-                            image = image.convert('RGB')
+                            # Update progress bar and status text
+                            progress = (i + 1) / total_files
+                            progress_bar.progress(progress)
+                            status_text.markdown(f"""
+                                <div style="padding: 1rem; background: rgba(0,102,153,0.05); border-radius: 8px;">
+                                    🔍 Analyse du fichier {i+1}/{total_files} : 
+                                    <strong>{uploaded_file.name}</strong>
+                                </div>
+                            """, unsafe_allow_html=True)
                             
-                            with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as temp_file:
-                                image.save(temp_file, format='JPEG')
-                                temp_file_path = temp_file.name
-                            
-                            result = classify_image(temp_file_path)
-                            detected_classes = [pred['class'] for pred in result.get('predictions', []) if pred['confidence'] > 0.5]
-                            
-                            if detected_classes:
-                                img_data = {
-                                    'type': detected_classes[0],
-                                    'serial': None,
-                                    'date': None,
-                                    'image': image
-                                }
+                            # Process PDF files
+                            if uploaded_file.type == "application/pdf":
+                                text = extract_text_from_pdf(uploaded_file)
                                 
-                                if "Defibrillateur" in detected_classes[0]:
-                                    results = process_ocr(image)
-                                    if "G3" in detected_classes[0]:
-                                        img_data['serial'], img_data['date'] = extract_important_info_g3(results)
+                                if 'rapport de vérification' in uploaded_file.name.lower():
+                                    st.session_state.processed_data['RVD'] = extract_rvd_data(text)
+                                    st.success(f"RVD traité : {uploaded_file.name}")
+                                elif 'aed' in uploaded_file.name.lower():
+                                    if st.session_state.dae_type == "G5":
+                                        st.session_state.processed_data['AEDG5'] = extract_aed_g5_data(text)
                                     else:
-                                        img_data['serial'], img_data['date'] = extract_important_info_g5(results)
-                                
-                                elif "Batterie" in detected_classes[0]:
-                                    results = process_ocr(image)
-                                    img_data['serial'], img_data['date'] = extract_important_info_batterie(results)
-                                
-                                elif "Electrodes" in detected_classes[0]:
-                                    img_data['serial'], img_data['date'] = extract_important_info_electrodes(image)
-                                
-                                st.session_state.processed_data['images'].append(img_data)
-                                st.success(f"Image {detected_classes[0]} traitée : {uploaded_file.name}")
+                                        st.session_state.processed_data['AEDG3'] = extract_aed_g3_data(text)
+                                    st.success(f"Rapport AED {st.session_state.dae_type} traité : {uploaded_file.name}")
+                                else:
+                                    st.warning(f"Type de PDF non reconnu : {uploaded_file.name}")
                             
+                            # Process image files
                             else:
-                                st.warning(f"Aucune classification trouvée pour : {uploaded_file.name}")
-                            os.unlink(temp_file_path)
+                                image = Image.open(uploaded_file)
+                                image = fix_orientation(image)
+                                image = image.convert('RGB')
+                                
+                                with tempfile.NamedTemporaryFile(delete=False, suffix='.jpg') as temp_file:
+                                    image.save(temp_file, format='JPEG')
+                                    temp_file_path = temp_file.name
+                                
+                                try:
+                                    result = classify_image(temp_file_path)
+                                    detected_classes = [pred['class'] for pred in result.get('predictions', []) 
+                                                    if pred['confidence'] > 0.5]
+                                    
+                                    if detected_classes:
+                                        img_data = {
+                                            'type': detected_classes[0],
+                                            'serial': None,
+                                            'date': None,
+                                            'image': image
+                                        }
+                                        
+                                        if "Defibrillateur" in detected_classes[0]:
+                                            results = process_ocr(image)
+                                            if "G3" in detected_classes[0]:
+                                                img_data['serial'], img_data['date'] = extract_important_info_g3(results)
+                                            else:
+                                                img_data['serial'], img_data['date'] = extract_important_info_g5(results)
+                                        
+                                        elif "Batterie" in detected_classes[0]:
+                                            results = process_ocr(image)
+                                            img_data['serial'], img_data['date'] = extract_important_info_batterie(results)
+                                        
+                                        elif "Electrodes" in detected_classes[0]:
+                                            img_data['serial'], img_data['date'] = extract_important_info_electrodes(image)
+                                        
+                                        st.session_state.processed_data['images'].append(img_data)
+                                        st.success(f"Image {detected_classes[0]} traitée : {uploaded_file.name}")
+                                    
+                                    else:
+                                        st.warning(f"Aucune classification trouvée pour : {uploaded_file.name}")
+                                    
+                                except Exception as e:
+                                    st.error(f"Erreur lors de la classification de l'image {uploaded_file.name} : {str(e)}")
+                                
+                                finally:
+                                    # Ensure temp file is always cleaned up
+                                    if os.path.exists(temp_file_path):
+                                        os.unlink(temp_file_path)
                         
                         except Exception as e:
-                            st.error(f"Erreur lors du traitement de {uploaded_file.name} : {str(e)}")
+                            error_container.error(f"Erreur lors du traitement de {uploaded_file.name} : {str(e)}")
+                            continue  # Continue processing other files even if one fails
+                    
+                    # Final success message after processing all files
+                    if i == total_files - 1:
+                        st.success(f"Traitement terminé pour tous les {total_files} fichiers.")
     with tab2:
         st.title("📊 Analyse de données traitées")
         # Affichage des données traitées
@@ -758,7 +844,7 @@ def main():
                         **Date:** {img_data.get('date', 'N/A')}
                         """)
         with tab3 :
-            st.title("📋vs📋 Comparaison des documents")
+            st.title("📋v📑 Comparaison des documents")
             # Section de comparaison améliorée
             with st.expander("Comparaison des documents", expanded=True):
                 st.markdown("""
@@ -895,4 +981,4 @@ def main():
                     )
 
 if __name__ == "__main__":
-    main()
+    main() 
